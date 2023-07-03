@@ -4,7 +4,7 @@ use inotify::{Inotify, WatchMask};
 
 mod client;
 mod debugger;
-mod fs;
+mod file_tree;
 mod server;
 
 pub fn test_socket() -> std::io::Result<()> {
@@ -49,5 +49,7 @@ pub fn file_watch_test(dir_path: &str) {
 fn main() {
     // test_socket().unwrap();
 
-    file_watch_test("tmp/");
+    // file_watch_test("tmp/");
+
+    file_tree::test("tmp/").unwrap();
 }

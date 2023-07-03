@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 inotify = "0.10.1"
+walkdir = "2.3.3"
 
 [features]
 default = ["error"]
