@@ -1,10 +1,26 @@
-### Basic Framework
+### 基本框架
 
-- `tra` : a central application managing the whole system.
-- `trasrv` : two servers to synchronize the data.
+- `tra` : 中心化的服务器，用于启动不同线程上面的replica同步服务
+- `trasrv` : 不同的副本的同步服务
+- 文件同步的过程：不需要经过中心化的服务器，直接在不同的副本之间进行同步
 
-#### Worker threads
+### 文件系统模拟
 
-In order to have many RPCs in flight and thus use the network well, `tra` is structured as a large number of worker threads each directing the synchronization of a single file or directory.
+- 可以采用rust虚拟的内存文件系统`memfs`，`tempfile`
+- 也可以针对每一个replica，根据线程id或者其他的唯一标识符，来创建不同的文件夹
 
-Here maybe we use coroutines in Rust to implement the worker threads.
+### 通信
+
+采用socket来进行通信，目前只实现了一个简单的socket的文本通信
+
+### 文件名的正则检查和绝对路径
+
+rust `regex`库
+
+### 工作线程
+
+对于每一个线程模拟出来的机器，都会对于很多个文件夹创建用户态线程，用于检测文件的改变，高效并发。
+
+### 文件监测
+
+rust `inotify`库
