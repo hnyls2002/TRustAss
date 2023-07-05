@@ -51,5 +51,5 @@ fn main() {
 
     // file_watch_test("tmp/");
 
-    file_tree::test("tmp/").unwrap();
+    file_tree::init("/home/hnyls2002/Desktop/TRustAss/tmp/folder").unwrap();
 }

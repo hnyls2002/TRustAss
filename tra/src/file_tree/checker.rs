@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, path::PathBuf};
 
 use regex::Regex;
 
@@ -17,4 +17,15 @@ pub fn check_legal(path_str: &str) -> io::Result<()> {
         io::ErrorKind::InvalidInput,
         format!("illegal path: {}", path_str),
     ))
+}
+
+// decomp a path to a vector of string
+// use relative path to root
+pub fn decomp(mut path: PathBuf, root: &PathBuf) -> Vec<String> {
+    let mut ret: Vec<String> = Vec::new();
+    while path != *root {
+        ret.push(path.file_name().unwrap().to_str().unwrap().to_string());
+        path.pop();
+    }
+    ret
 }
