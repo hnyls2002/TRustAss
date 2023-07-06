@@ -5,7 +5,9 @@ use inotify::{Inotify, WatchMask};
 mod client;
 mod debugger;
 mod file_tree;
+mod rsync;
 mod server;
+mod timestamp;
 
 pub fn test_socket() -> std::io::Result<()> {
     let server_thread = thread::spawn(|| {
@@ -49,7 +51,10 @@ pub fn file_watch_test(dir_path: &str) {
 fn main() {
     // test_socket().unwrap();
 
-    // file_watch_test("tmp/");
-
-    file_tree::init("/home/hnyls2002/Desktop/TRustAss/tmp/folder").unwrap();
+    if true {
+        rsync::demo();
+        let folder_path_str = "/home/hnyls2002/Desktop/TRustAss/tmp/folder";
+        file_tree::init(folder_path_str).unwrap();
+        file_watch_test(folder_path_str);
+    }
 }
