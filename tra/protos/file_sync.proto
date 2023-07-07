@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+// Machine A : send a request to Machine B
+// Machine B : confirm the request
+// Machine A : send the signature to Machine B
+// Machine B : get the delta, send back the delta
+
+message SyncRequest { string path = 1; }
+
+message SyncConfirm { string path = 1; }
+
+message SyncSignature {
+  string path = 1;
+  bytes signature = 2;
+}
+
+message SyncDelta {
+  string path = 1;
+  bytes delta = 2;
+}

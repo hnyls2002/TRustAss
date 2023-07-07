@@ -1,4 +1,9 @@
+use std::io;
+
 use fast_rsync::{apply, diff, Signature, SignatureOptions};
+use protobuf::Message;
+
+use crate::protos::file_sync;
 
 pub fn demo() {
     let data1 = "hello fuck".as_bytes();
@@ -14,4 +19,11 @@ pub fn demo() {
     diff(&index_sig, data2, &mut buf).unwrap();
     apply(data1, &buf, &mut res).unwrap();
     println!("{}", std::str::from_utf8(res.as_slice()).unwrap());
+}
+
+pub fn rsync() -> io::Result<()> {
+    let mut req = file_sync::SyncRequest::new();
+    req.path = "tmp/a.txt".to_string();
+    let req_bytes = req.write_to_bytes().unwrap();
+    Ok(())
 }

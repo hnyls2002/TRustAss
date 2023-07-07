@@ -48,7 +48,7 @@ impl FileTree {
     }
 }
 
-pub fn init(path_str: &str) -> io::Result<()> {
+pub fn init(path_str: &String) -> io::Result<()> {
     check_legal(path_str)?;
     info!("Ok, \"{}\" is a legal path", path_str);
 

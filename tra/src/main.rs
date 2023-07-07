@@ -1,13 +1,16 @@
 use std::thread;
 
+use config::TMP_PATH;
 use inotify::{Inotify, WatchMask};
 
-mod client;
-mod debugger;
-mod file_tree;
-mod rsync;
-mod server;
-mod timestamp;
+pub mod client;
+pub mod config;
+pub mod debugger;
+pub mod file_tree;
+pub mod protos;
+pub mod rsync;
+pub mod server;
+pub mod timestamp;
 
 pub fn test_socket() -> std::io::Result<()> {
     let server_thread = thread::spawn(|| {
@@ -27,7 +30,7 @@ pub fn test_socket() -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn file_watch_test(dir_path: &str) {
+pub fn file_watch_test(dir_path: &String) {
     let mut inotify = Inotify::init().expect("Failed to initialize inotify");
     let path = std::path::Path::new(dir_path);
     std::fs::create_dir_all(path).unwrap();
@@ -53,8 +56,8 @@ fn main() {
 
     if true {
         rsync::demo();
-        let folder_path_str = "/home/hnyls2002/Desktop/TRustAss/tmp/folder";
-        file_tree::init(folder_path_str).unwrap();
-        file_watch_test(folder_path_str);
+        let folder_path_str = TMP_PATH.to_string() + "folder/";
+        file_tree::init(&folder_path_str).unwrap();
+        file_watch_test(&folder_path_str);
     }
 }
