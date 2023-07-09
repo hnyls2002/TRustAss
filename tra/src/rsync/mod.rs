@@ -3,7 +3,7 @@ use std::io;
 use fast_rsync::{apply, diff, Signature, SignatureOptions};
 use protobuf::Message;
 
-use crate::protos::file_sync;
+use crate::protos::file_sync::SyncRequest;
 
 pub fn demo() {
     let data1 = "hello fuck".as_bytes();
@@ -22,7 +22,7 @@ pub fn demo() {
 }
 
 pub fn rsync() -> io::Result<()> {
-    let mut req = file_sync::SyncRequest::new();
+    let mut req = SyncRequest::new();
     req.path = "tmp/a.txt".to_string();
     let req_bytes = req.write_to_bytes().unwrap();
     Ok(())

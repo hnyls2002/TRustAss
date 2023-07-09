@@ -34,3 +34,10 @@
 - 了解了`protobuf` 这个库，可以用于协议内容的编码和解码
 - 尝试构利用`protobuf`构建一个简单的文件同步协议
   - 目前还没有考虑到可能会存在的一些问题
+
+#### 7.9 
+
+- 简单了解了一下Rust 的 async programming
+   - `async` and `await` 上层语法糖
+   - `futures`, `poll`, `wake` 等相关概念
+   - `tokio`, `async-std` 两个异步运行时的库
