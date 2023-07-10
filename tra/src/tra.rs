@@ -4,7 +4,7 @@ use std::{
     thread,
 };
 
-use crate::info;
+use crate::{info, machine};
 
 pub fn handle_connection(mut stream: TcpStream) {
     let mut buffer = [0; 1024];
@@ -52,6 +52,24 @@ pub fn start_server() -> std::io::Result<()> {
     for thread in thread_vec {
         thread.join().expect("Could not join thread");
     }
+
+    Ok(())
+}
+
+pub fn test_socket() -> std::io::Result<()> {
+    let server_thread = thread::spawn(|| {
+        start_server().expect("Server failed");
+    });
+
+    // sleep for a second to give the server time to start
+    thread::sleep(std::time::Duration::from_secs(1));
+
+    let client_thread = thread::spawn(|| {
+        machine::start_client().expect("Client failed");
+    });
+
+    server_thread.join().expect("Server thread panicked");
+    client_thread.join().expect("Client thread panicked");
 
     Ok(())
 }
