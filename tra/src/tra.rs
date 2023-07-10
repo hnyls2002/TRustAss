@@ -1,8 +1,10 @@
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
-    thread,
+    thread, usize,
 };
+
+use std::io::Result as IoResult;
 
 use crate::{info, machine};
 
@@ -71,5 +73,13 @@ pub fn test_socket() -> std::io::Result<()> {
     server_thread.join().expect("Server thread panicked");
     client_thread.join().expect("Client thread panicked");
 
+    Ok(())
+}
+
+pub fn start_tra(mac_num: usize) -> IoResult<()> {
+    let mut mac_list = Vec::new();
+    for i in 0..mac_num {
+        mac_list.push(format!("192.168.1.{}", i + 1));
+    }
     Ok(())
 }

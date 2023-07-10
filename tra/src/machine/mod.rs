@@ -23,3 +23,7 @@ pub fn start_client() -> std::io::Result<()> {
         thread::sleep(std::time::Duration::from_secs_f64(0.1));
     }
 }
+
+pub struct Machine {
+    pub ip_addr: String,
+}
