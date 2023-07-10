@@ -70,3 +70,16 @@ Waker 的上下文
 
 - 这个`Waker` 是之前的 `Context` 里面的 `Waker`，它的上下文和`Context`的上下文不一样
 - 这个上下文表示 Task Context，一个 Future 有时候会切换执行环境，例如 move 到另一个线程， 这个时候操作系统调度的任务上下文会发生改变，所以**每次轮询的时候需要更新waker (inside the `Context` struct)，而不是只是调用 Context::waker()**
+
+### Rust 闭包
+
+#### `Fn`, `FnMut`, `FnOnce`
+
+- `Fn(&self)` 对环境中的变量不可变引用
+- `FnMut(&mut self)` 对环境中的变量可变引用
+- `FnOnce(self)` 对环境中的变量所有权进行转移
+
+#### Closure
+
+- 一个 closure 是一个匿名函数，可以捕获环境中的变量，并且根据捕获的方式，自动地实现上面三个 trait (some may not)
+- 所有的 closure 都实现了 `FnOnce`。如果只实现了 `FnOnce`，那么这个 closure 只能被调用一次。
