@@ -12,8 +12,6 @@ pub mod timestamp;
 pub mod tra;
 
 async fn demo() {
-    tra::test_socket().unwrap();
-
     rsync::demo();
     let folder_path_str = TMP_PATH.to_string() + "folder/";
     file_tree::init(&folder_path_str).unwrap();
@@ -42,5 +40,7 @@ async fn main() {
     }
 
     // start the tra server
-    tra::start_tra(BASE_MAC_NUM).expect("Failed to start tra");
+    tra::start_tra(BASE_MAC_NUM)
+        .await
+        .expect("Failed to start tra");
 }

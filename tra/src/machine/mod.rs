@@ -4,8 +4,11 @@ use std::{
     thread,
 };
 
-pub fn start_client() -> std::io::Result<()> {
-    let addr = "127.0.0.1:1235";
+use crate::config::{LOCAL_IP, TRA_PORT};
+
+
+pub fn start_machine() -> std::io::Result<()> {
+    let addr = format!("{}:{}", LOCAL_IP, TRA_PORT);
     let mut counter = 0;
     let mut client_socket = TcpStream::connect(addr)?;
 
@@ -22,8 +25,4 @@ pub fn start_client() -> std::io::Result<()> {
 
         thread::sleep(std::time::Duration::from_secs_f64(0.1));
     }
-}
-
-pub struct Machine {
-    pub ip_addr: String,
 }
