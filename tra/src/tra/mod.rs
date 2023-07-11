@@ -11,13 +11,15 @@ use crate::{
     info, machine,
 };
 
+type MacThread = thread::JoinHandle<Result<(), IoError>>;
+
 pub struct MacInfo {
-    pub thread_handle: thread::JoinHandle<Result<(), IoError>>,
+    pub thread_handle: MacThread,
     pub port: u16,
 }
 
 pub async fn handle_connection(mut stream: TcpStream) {
-    let mut buffer = [0; 1024];
+    let mut buffer = [0; 3];
     loop {
         match stream.read(&mut buffer).await {
             Ok(n) => {
@@ -40,6 +42,25 @@ pub async fn handle_connection(mut stream: TcpStream) {
             }
         }
     }
+}
+
+pub async fn recv_bytes(mut stream: TcpStream) -> Vec<u8> {
+    todo!()
+}
+
+// get a valid connection
+pub async fn get_connection(listener: TcpListener) -> TcpStream {
+    let (mut stream, _) = listener
+        .accept()
+        .await
+        .expect("Failed to accept a new connection");
+    let mut buffer = [0; 1024];
+    if let Ok(n) = stream.read(&mut buffer).await {
+        // TODO why read buf ???
+    } else {
+        panic!("Failed to read the first message to verify the connection");
+    }
+    todo!()
 }
 
 pub async fn start_tra(mac_num: usize) -> IoResult<()> {

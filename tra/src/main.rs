@@ -1,4 +1,4 @@
-use config::{BASE_MAC_NUM, TMP_PATH};
+use config::TMP_PATH;
 
 pub mod config;
 pub mod debugger;
@@ -40,7 +40,5 @@ async fn main() {
     }
 
     // start the tra server
-    tra::start_tra(BASE_MAC_NUM)
-        .await
-        .expect("Failed to start tra");
+    tra::start_tra(1).await.expect("Failed to start tra");
 }

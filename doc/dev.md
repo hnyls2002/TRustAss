@@ -31,13 +31,28 @@ Simple Version
 - Header 定长，元信息
 - Payload 经过protobuf序列化之后得到的数据
 
+Header
+
+- First 3 bytes
+  - 魔数用于验证第一次连接
+  - 本次数据的类型
+- Next 2 bytes
+  - 本次数据的长度，max 65535 bytes
+  - 不包括 header 的长度，但是包括 EOF (`0x4`) 的长度
+
+Payload
+
+- 用 protobuf 来解析
+- 最后一个字节为`0x4`，用于表示数据的结束
+
+
 Control Flow
 
-- 1. Machine A : 发送同步请求，包括同步的文件路径
-- 2. Machine B : 确认请求，并且做相应的准备 (创建文件，File::open())
-- 3. Machine A : 发送replica A的signature
-- 4. Machine B ：返回 delta(B, A)
-- 5. Machine A : apply delta(B, A) 打补丁
+1. Machine A : 发送同步请求，包括同步的文件路径
+2. Machine B : 确认请求，并且做相应的准备 (创建文件，File::open())
+3. Machine A : 发送replica A的signature
+4. Machine B ：返回 delta(B, A)
+5. Machine A : apply delta(B, A) 打补丁
 
 #### 需要考虑的问题
 
