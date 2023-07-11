@@ -14,7 +14,7 @@
 - 采用socket来进行通信，通过字节流的方式进行通信
 - 中心服务器只用于处理一些信息的转发，不对data进行传输
 - data的传输直接通过不同的replica之间进行传输，每对传输的thread之间都会建立一个socket连接
-- socket连接的端口由中心服务器动态分配。
+- 所有replica所在线程的端口由TcpStream::connect自动分配。并且这些端口可以被tra中心服务器知道。
 
 ###  增量同步算法
 
@@ -88,6 +88,20 @@ Rust `TCPStream` 的这个 socket 接口
 - Rust 的 `async` 和 `await` 机制, 实现异步处理
 - 消息的分发（保证控制流分发的连续性）：`async_channel`库
 - 协议的上下文管理：在协程中做
+
+Response but Asynchronization Communication Mode
+
+- 所有的通讯必须要有回复（一拍一拍来）
+- 但是接受消息都是采用`tokio`的异步`TcpStream`来
+- 不会出现消息交叉的情况
+- 不同的消息也不会share相同的receive buffer
+
+Multi-Directories
+
+- 每个directory同步的监听模式是“你来我往”的
+- 每个directory的处理逻辑是异步的
+- 每个replica需要接受信息，然后将信息发送给多个directories的处理逻辑 (`async_channel`)
+
 
 ### 其他
 

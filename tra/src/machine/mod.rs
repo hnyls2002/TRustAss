@@ -6,11 +6,11 @@ use tokio::{
     runtime::Runtime,
 };
 
-use crate::config::{LOCAL_IP, TRA_PORT};
-
-fn first_msg(msg: &str) -> Vec<u8> {
-    ("YLS".to_string() + msg).into_bytes()
-}
+use crate::{
+    config::{LOCAL_IP, TRA_PORT},
+    debug,
+    message::first_msg,
+};
 
 pub async fn async_work() -> IoResult<()> {
     let addr = format!("{}:{}", LOCAL_IP, TRA_PORT);
@@ -23,7 +23,9 @@ pub async fn async_work() -> IoResult<()> {
 
         client_socket.write(message.as_slice()).await?;
 
-        client_socket.write(message.as_slice()).await?;
+        // client_socket.write(message.as_slice()).await?;
+
+        debug!("Machien send done");
 
         let mut response = [0; 1024];
         client_socket.read(&mut response).await?;
@@ -32,7 +34,7 @@ pub async fn async_work() -> IoResult<()> {
 
         thread::sleep(std::time::Duration::from_secs_f64(0.1));
 
-        break;
+        // break;
     }
 
     // must manually shutdown the socket to close the connection
