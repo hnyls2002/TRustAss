@@ -1,14 +1,13 @@
-use std::{thread, usize};
+use std::thread;
 
 use std::io::Error as IoError;
 use std::io::Result as IoResult;
 
-use tokio::net::{TcpListener, TcpStream};
+use tonic::transport::Server;
+use tonic::{Request, Response, Status};
 
-use crate::{
-    config::{LOCAL_IP, TRA_PORT},
-    info, machine,
-};
+use crate::hello::greeter_server::{Greeter, GreeterServer};
+use crate::hello::{HelloReply, HelloRequest};
 
 type MacThread = thread::JoinHandle<Result<(), IoError>>;
 
@@ -17,51 +16,31 @@ pub struct MacInfo {
     pub port: u16,
 }
 
-pub async fn handle_connection(mut stream: TcpStream) {
-    todo!()
+#[derive(Default)]
+struct MyGreeter {}
+
+#[tonic::async_trait]
+impl Greeter for MyGreeter {
+    async fn say_hello(
+        &self,
+        request: Request<HelloRequest>,
+    ) -> Result<Response<HelloReply>, Status> {
+        let name = request.into_inner().name;
+        let reply = HelloReply {
+            message: format!("Fuck you, {}!", name),
+        };
+        Ok(Response::new(reply))
+    }
 }
 
-pub async fn start_tra(mac_num: usize) -> IoResult<()> {
-    let tra_addr = format!("{}:{}", LOCAL_IP, TRA_PORT);
-    let listener = TcpListener::bind(tra_addr)
+pub async fn start_tra() -> IoResult<()> {
+    let server = MyGreeter::default();
+
+    Server::builder()
+        .add_service(GreeterServer::new(server))
+        .serve("[::]:8080".parse().unwrap())
         .await
-        .expect("Listener failed to bind");
-
-    // sleep for a second to give the server time to start
-    thread::sleep(std::time::Duration::from_millis(200));
-
-    let mut mac_list = Vec::new();
-    let mut handle_fibers = Vec::new();
-
-    for _ in 0..mac_num {
-        // start a new machine using a thread
-        let thread = thread::spawn(machine::start_machine);
-
-        let (stream, peer_addr) = listener
-            .accept()
-            .await
-            .expect("Failed to accept a new connection");
-
-        info!("New connection received");
-        info!("Peer address: {}", peer_addr);
-
-        mac_list.push(MacInfo {
-            thread_handle: thread,
-            port: peer_addr.port(),
-        });
-
-        handle_fibers.push(tokio::spawn(async {
-            handle_connection(stream).await;
-        }));
-    }
-
-    for fiber in handle_fibers {
-        fiber.await?;
-    }
-
-    for mac_info in mac_list {
-        mac_info.thread_handle.join().unwrap()?;
-    }
+        .unwrap();
 
     Ok(())
 }

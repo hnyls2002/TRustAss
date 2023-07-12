@@ -10,6 +10,9 @@ pub mod protos;
 pub mod rsync;
 pub mod timestamp;
 pub mod tra;
+pub mod hello {
+    tonic::include_proto!("hello");
+}
 
 async fn demo() {
     rsync::demo();
@@ -40,5 +43,7 @@ async fn main() {
     }
 
     // start the tra server
-    tra::start_tra(1).await.expect("Failed to start tra");
+    tokio::spawn(tra::start_tra());
+
+    machine::start_machine(1).expect("Failed to start machine");
 }
