@@ -1,4 +1,4 @@
-use config::TMP_PATH;
+use config::{BASE_MAC_NUM, TMP_PATH};
 
 pub mod centra;
 pub mod config;
@@ -42,7 +42,12 @@ async fn main() {
     }
 
     // start the tra server
-    tokio::spawn(centra::start_tra());
+    let handle = tokio::spawn(centra::start_tra());
 
-    machine::start_machine(1).expect("Failed to start machine");
+    machine::start_machine(BASE_MAC_NUM).expect("Failed to start machine");
+
+    handle
+        .await
+        .expect("Failed to join tra thread")
+        .expect("Failed to start tra");
 }

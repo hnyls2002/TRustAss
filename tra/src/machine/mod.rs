@@ -29,7 +29,13 @@ pub async fn async_work() -> IoResult<()> {
         let response_msg = response.unwrap().into_inner().message;
 
         debug!("{}", response_msg);
+
+        if counter >= 3 {
+            break;
+        }
     }
+
+    Ok(())
 }
 
 pub fn start_machine(mac_num: usize) -> IoResult<()> {
