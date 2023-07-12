@@ -3,7 +3,6 @@ use std::thread;
 use std::io::Error as IoError;
 use std::io::Result as IoResult;
 
-use tokio::signal;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 
@@ -18,8 +17,8 @@ pub struct MacInfo {
     pub port: u16,
 }
 
-#[derive(Default)]
-struct MyGreeter {}
+#[derive(Default, Clone, Copy)]
+pub struct MyGreeter {}
 
 #[tonic::async_trait]
 impl Greeter for MyGreeter {
@@ -35,20 +34,18 @@ impl Greeter for MyGreeter {
     }
 }
 
-async fn ctrl_c_singal() {
-    signal::ctrl_c().await.unwrap()
-}
-
 pub async fn start_tra() -> IoResult<()> {
     let server = MyGreeter::default();
 
     let server = Server::builder()
         .add_service(GreeterServer::new(server))
-        .serve_with_shutdown("[::]:8080".parse().unwrap(), ctrl_c_singal());
+        // .serve_with_shutdown("[::]:8080".parse().unwrap(), ctrl_c_singal());
+        .serve("[::]:8080".parse().unwrap());
 
     server.await.unwrap();
 
-    info!("Shutting down server...");
+    println!("");
+    info!("Shutting down the tra server...");
 
     Ok(())
 }

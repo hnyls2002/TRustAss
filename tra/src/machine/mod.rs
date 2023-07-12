@@ -3,12 +3,21 @@ use std::{io::Result as IoResult, thread};
 use tokio::runtime::Runtime;
 use tonic::{transport::channel, Request};
 
+pub mod replica_server;
+
 use crate::{
     debug,
     hello::{greeter_client::GreeterClient, HelloRequest},
+    info,
 };
 
+use self::replica_server::boot_server;
+
 pub async fn async_work() -> IoResult<()> {
+    let (server, port) = boot_server();
+
+    info!("the port number is {}", port);
+
     let channel = channel::Channel::from_static("http://[::]:8080")
         .connect()
         .await
@@ -34,6 +43,8 @@ pub async fn async_work() -> IoResult<()> {
             break;
         }
     }
+
+    server.await?.expect("server failed");
 
     Ok(())
 }
