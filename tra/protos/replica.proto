@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package replica;
+
+service Port { rpc GetPort(PortNumber) returns (Null); }
+
+message PortNumber { int32 port = 1; }
+
+message Null {}

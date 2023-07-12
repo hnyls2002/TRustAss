@@ -1,11 +1,18 @@
 fn main() {
-    protobuf_codegen::Codegen::new()
-        .out_dir("src/protos")
-        .inputs(&["protos/file_sync.proto"])
-        .include("protos")
-        .run()
-        .expect("protoc");
+    // protobuf_codegen::Codegen::new()
+    //     .out_dir("src/protos")
+    //     .inputs(&["protos/file_sync.proto"])
+    //     .include("protos")
+    //     .run()
+    //     .expect("protoc");
 
-    // build the tonic in "protos/simple_test.proto"
-    tonic_build::compile_protos("protos/simple_test.proto").unwrap();
+    tonic_build::configure()
+        .out_dir("src/protos")
+        .compile(&["protos/simple_test.proto"], &["protos"])
+        .unwrap();
+
+    tonic_build::configure()
+        .out_dir("src/protos")
+        .compile(&["protos/replica.proto"], &["protos"])
+        .unwrap();
 }

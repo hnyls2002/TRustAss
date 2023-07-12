@@ -1,17 +1,17 @@
-use std::{io::Result as IoResult, thread};
-
-use tokio::runtime::Runtime;
-use tonic::{transport::channel, Request};
-
-pub mod replica_server;
-
+use self::service::boot_server;
 use crate::{
     debug,
     hello::{greeter_client::GreeterClient, HelloRequest},
     info,
 };
+use std::{io::Result as IoResult, thread};
+use tokio::runtime::Runtime;
+use tonic::{transport::channel, Request};
 
-use self::replica_server::boot_server;
+pub mod service;
+pub mod replica {
+    include!("../protos/replica.rs");
+}
 
 pub async fn async_work() -> IoResult<()> {
     let (server, port) = boot_server();

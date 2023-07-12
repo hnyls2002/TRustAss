@@ -6,11 +6,10 @@ pub mod debugger;
 pub mod file_tree;
 pub mod file_watcher;
 pub mod machine;
-pub mod protos;
 pub mod rsync;
 pub mod timestamp;
 pub mod hello {
-    tonic::include_proto!("hello");
+    include!("protos/hello.rs");
 }
 
 async fn demo() {
