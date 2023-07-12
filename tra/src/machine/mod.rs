@@ -15,16 +15,21 @@ pub async fn async_work() -> IoResult<()> {
         .unwrap();
 
     let mut client = GreeterClient::new(channel);
+    let mut counter = 0;
 
-    let request = Request::new(HelloRequest { name: "asd".into() });
+    loop {
+        let request = Request::new(HelloRequest {
+            name: format!("asd {} times", counter),
+        });
 
-    let response = client.say_hello(request).await;
+        counter += 1;
 
-    let response_msg = response.unwrap().into_inner().message;
+        let response = client.say_hello(request).await;
 
-    debug!("{}", response_msg);
+        let response_msg = response.unwrap().into_inner().message;
 
-    Ok(())
+        debug!("{}", response_msg);
+    }
 }
 
 pub fn start_machine(mac_num: usize) -> IoResult<()> {

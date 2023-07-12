@@ -1,15 +1,14 @@
 use config::TMP_PATH;
 
+pub mod centra;
 pub mod config;
 pub mod debugger;
 pub mod file_tree;
 pub mod file_watcher;
 pub mod machine;
-pub mod message;
 pub mod protos;
 pub mod rsync;
 pub mod timestamp;
-pub mod tra;
 pub mod hello {
     tonic::include_proto!("hello");
 }
@@ -43,7 +42,7 @@ async fn main() {
     }
 
     // start the tra server
-    tokio::spawn(tra::start_tra());
+    tokio::spawn(centra::start_tra());
 
     machine::start_machine(1).expect("Failed to start machine");
 }
