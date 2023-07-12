@@ -3,7 +3,6 @@ use std::{thread, usize};
 use std::io::Error as IoError;
 use std::io::Result as IoResult;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::{
@@ -19,47 +18,6 @@ pub struct MacInfo {
 }
 
 pub async fn handle_connection(mut stream: TcpStream) {
-    let mut buffer = [0; 3];
-    loop {
-        match stream.read(&mut buffer).await {
-            Ok(n) => {
-                if n != 0 {
-                    println!("Received: {}", String::from_utf8_lossy(&buffer[..n]));
-                    let response = "Hello from server";
-                    stream
-                        .write(response.as_bytes())
-                        .await
-                        .expect("Could not write");
-                } else {
-                    // only something like EOF would cause n to be 0
-                    info!("Connection closed");
-                    break;
-                }
-            }
-            Err(e) => {
-                eprintln!("Failed to read from connection: {}", e);
-                return;
-            }
-        }
-    }
-}
-
-pub async fn recv_bytes(mut stream: TcpStream) -> Vec<u8> {
-    todo!()
-}
-
-// get a valid connection
-pub async fn get_connection(listener: TcpListener) -> TcpStream {
-    let (mut stream, _) = listener
-        .accept()
-        .await
-        .expect("Failed to accept a new connection");
-    let mut buffer = [0; 1024];
-    if let Ok(n) = stream.read(&mut buffer).await {
-        // TODO why read buf ???
-    } else {
-        panic!("Failed to read the first message to verify the connection");
-    }
     todo!()
 }
 
@@ -70,7 +28,7 @@ pub async fn start_tra(mac_num: usize) -> IoResult<()> {
         .expect("Listener failed to bind");
 
     // sleep for a second to give the server time to start
-    thread::sleep(std::time::Duration::from_secs(1));
+    thread::sleep(std::time::Duration::from_millis(200));
 
     let mut mac_list = Vec::new();
     let mut handle_fibers = Vec::new();

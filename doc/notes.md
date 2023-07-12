@@ -2,6 +2,12 @@
 
 使用 `socket` 模块实现 IPC 通信。
 
+### RPC
+
+- 去你的socket通信，直接nake bytes stream太难写了，一堆调用，还要自己写解析器
+- rust RPC 支持,`tonic` crate
+- 使用 `.proto3` 文件来定义 remote procedure call 的接口
+
 #### 两种不同的网络编程模型
 
 `std::net` 同步阻塞的网络

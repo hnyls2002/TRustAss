@@ -5,4 +5,10 @@ fn main() {
         .include("protos")
         .run()
         .expect("protoc");
+
+    // build the tonic in "protos/simple_test.proto"
+    tonic_build::configure()
+        .out_dir("src/rpc")
+        .compile(&["protos/simple_test.proto"], &["protos"])
+        .unwrap();
 }
