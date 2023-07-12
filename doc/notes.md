@@ -1,22 +1,39 @@
 ### Socket
 
-使用 `socket` 模块实现 IPC 通信。
+- 使用 `socket` 模块实现 IPC 通信。
+- Aborted
 
 ### RPC
 
-- 去你的socket通信，直接nake bytes stream太难写了，一堆调用，还要自己写解析器
+- ~~去你的socket通信~~，直接nake bytes stream太难写了，一堆调用，还要自己写解析器
 - rust RPC 支持,`tonic` crate
 - 使用 `.proto3` 文件来定义 remote procedure call 的接口
 
 #### 两种不同的网络编程模型
 
-`std::net` 同步阻塞的网络
-`tokio::net` 异步非阻塞的网络
+- `std::net` 同步阻塞的网络
+- `tokio::net` 异步非阻塞的网络
 
-#### 如何持续地接受 client 的请求
+#### Machine 创建服务端
 
-- loop 并且不断 accept
-- 多线程并发处理：每次有新的请求时创建一个新的线程来监听新的任务。`listener.incoming`是一个阻塞调用，可以等待下一个消息。
+- RPC 每个replica所在的服务器都需要有相互的RPC调用，所以每个replica都需要创建一个服务端
+
+检测port是否可用:
+- rand 一个 port number
+- 用`std::net::TcpListener`来尝试连接
+- 连接成功，转化为`tokio::net::TcpListener`
+- 用`tokio::TcpIncoming`来把`TcpListener`转化为`TcpStream`
+- 使用`tonic::transport::Server::builder`中的`serve_incoming()`来从已有的流建立服务端
+
+服务端采用异步任务
+
+- 每一个replica仅仅显式开一个`thread`，其余的并发用async来实现
+- 对于已有的Future server, 如果直接await, 会一直阻塞在这里，从而这个控制流不可用
+- 使用`tokio::spawn`来创建一个异步任务，这个任务会在后台运行，不会阻塞当前的控制流
+- >The provided future will start running in the background immediately when spawn is called, even if you don’t await the returned JoinHandle.（会立马执行，即使没有对JoinHandle进行await）
+- > It is guaranteed that spawn will not synchronously poll the task being spawned. This means that calling spawn while holding a lock does not pose a risk of deadlocking with the spawned task.（不会同步地轮询被spawn的任务，所以不会死锁）
+- > There is no guarantee that a spawned task will execute to completion. When a runtime is shutdown, all outstanding tasks are dropped, regardless of the lifecycle of that task. （可能不会执行完）
+- > This function must be called from the context of a Tokio runtime. Tasks running on the Tokio runtime are always inside its context, but you can also enter the context using the Runtime::enter method.（必须在Tokio runtime的上下文中调用，或者可以用`Runtime::enter`来进入上下文）
 
 ### rsync 增量传输算法
 

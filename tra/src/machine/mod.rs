@@ -54,6 +54,13 @@ pub fn start_machine(mac_num: usize) -> IoResult<()> {
     for _ in 0..mac_num {
         mac_threads.push(thread::spawn(|| -> IoResult<()> {
             let rt = Runtime::new()?;
+
+            // use this to enter the runtime context, so that we can spawn tasks
+            // that is, calling `boot_server()` here would not cause panic
+            // let _guard = rt.enter();
+            // let (server, port) = boot_server();
+            // info!("the port number is {}", port);
+
             rt.block_on(async_work())?;
             Ok(())
         }));
