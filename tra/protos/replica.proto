@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package replica;
+
+message Signature {
+  string path = 1;
+  string bytes = 2;
+}
+
+message Patch {
+  string path = 1;
+  string bytes = 2;
+}
+
+service Rsync { rpc FetchPatch(Signature) returns (Patch); }

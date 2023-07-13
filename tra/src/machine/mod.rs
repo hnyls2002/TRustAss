@@ -1,3 +1,5 @@
+pub mod rsync;
+
 use self::booter::boot_server;
 use crate::{
     centra::{GreeterClient, HelloRequest},

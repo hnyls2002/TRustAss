@@ -1,12 +1,13 @@
 use config::{BASE_MAC_NUM, TMP_PATH};
 
+use crate::machine::rsync;
+
 pub mod centra;
 pub mod config;
 pub mod debugger;
 pub mod file_tree;
 pub mod file_watcher;
 pub mod machine;
-pub mod rsync;
 pub mod timestamp;
 
 async fn demo() {

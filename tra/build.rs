@@ -10,4 +10,9 @@ fn main() {
         .out_dir("src/protos")
         .compile(&["protos/controller.proto"], &["protos"])
         .unwrap();
+
+    tonic_build::configure()
+        .out_dir("src/protos")
+        .compile(&["protos/replica.proto"], &["protos"])
+        .unwrap();
 }
