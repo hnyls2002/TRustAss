@@ -1,10 +1,16 @@
 syntax = "proto3";
 
-package hello;
+package controller;
+
+service PortCollect { rpc SendPort(PortNumber) returns (Null); }
 
 service Greeter {
   rpc SayHello(HelloRequest) returns (HelloReply) {}
 }
+
+message PortNumber { int32 port = 1; }
+
+message Null {}
 
 message HelloRequest { string name = 1; }
 

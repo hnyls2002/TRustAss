@@ -8,11 +8,6 @@ fn main() {
 
     tonic_build::configure()
         .out_dir("src/protos")
-        .compile(&["protos/simple_test.proto"], &["protos"])
-        .unwrap();
-
-    tonic_build::configure()
-        .out_dir("src/protos")
-        .compile(&["protos/replica.proto"], &["protos"])
+        .compile(&["protos/controller.proto"], &["protos"])
         .unwrap();
 }

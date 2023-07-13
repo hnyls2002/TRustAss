@@ -1,22 +1,15 @@
 use self::service::boot_server;
 use crate::{
+    centra::{GreeterClient, HelloRequest},
     debug,
-    hello::{greeter_client::GreeterClient, HelloRequest},
-    info,
 };
 use std::{io::Result as IoResult, thread};
 use tokio::runtime::Runtime;
 use tonic::{transport::channel, Request};
 
 pub mod service;
-pub mod replica {
-    include!("../protos/replica.rs");
-}
-
 pub async fn async_work() -> IoResult<()> {
-    let (server, port) = boot_server();
-
-    info!("the port number is {}", port);
+    let server = boot_server();
 
     let channel = channel::Channel::from_static("http://[::]:8080")
         .connect()

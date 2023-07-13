@@ -8,9 +8,6 @@ pub mod file_watcher;
 pub mod machine;
 pub mod rsync;
 pub mod timestamp;
-pub mod hello {
-    include!("protos/hello.rs");
-}
 
 async fn demo() {
     rsync::demo();
