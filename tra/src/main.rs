@@ -37,8 +37,8 @@ async fn main() {
         demo().await;
     }
 
-    // start the tra server
-    let handle = tokio::spawn(centra::start_tra());
+    // start the the tra algorithm here
+    let handle = tokio::spawn(centra::start_tra(BASE_MAC_NUM));
 
     machine::start_machine(BASE_MAC_NUM).expect("Failed to start machine");
 

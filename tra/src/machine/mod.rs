@@ -5,17 +5,19 @@ use crate::{
 };
 use std::{io::Result as IoResult, thread};
 use tokio::runtime::Runtime;
-use tonic::{transport::channel, Request};
+use tonic::{transport::Channel, Request};
 
 pub mod service;
 pub async fn async_work() -> IoResult<()> {
-    let server = boot_server();
-
-    let channel = channel::Channel::from_static("http://[::]:8080")
+    let channel = Channel::from_static("http://[::]:8080")
         .connect()
         .await
         .unwrap();
 
+    // boot the machine server here
+    let server = boot_server(channel.clone()).await;
+
+    // ----------------- do machine things below -----------------
     let mut client = GreeterClient::new(channel);
     let mut counter = 0;
 
