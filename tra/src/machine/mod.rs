@@ -1,4 +1,4 @@
-use self::service::boot_server;
+use self::booter::boot_server;
 use crate::{
     centra::{GreeterClient, HelloRequest},
     debug,
@@ -7,7 +7,7 @@ use std::{io::Result as IoResult, thread};
 use tokio::runtime::Runtime;
 use tonic::{transport::Channel, Request};
 
-pub mod service;
+pub mod booter;
 pub async fn async_work() -> IoResult<()> {
     let channel = Channel::from_static("http://[::]:8080")
         .connect()
