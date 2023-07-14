@@ -20,20 +20,7 @@ pub use replica::{
     DiffSource, Patch, ReqRst, SyncMsg,
 };
 
-pub async fn async_work() -> IoResult<()> {
-    // build the tonic channel to connect to centra server
-    let tonic_channel = tonic::transport::Channel::from_static("http://[::]:8080")
-        .connect()
-        .await
-        .unwrap();
-
-    // build the mpsc channel to dispatch sync tasks in a single machine
-    let (tx, rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
-
-    // boot the machine server here
-    let server = boot_server(tonic_channel.clone(), &tx).await;
-
-    // ----------------- do machine things below -----------------
+pub async fn greet_test(tonic_channel: tonic::transport::Channel) -> IoResult<()> {
     let mut client = GreeterClient::new(tonic_channel);
     let mut counter = 0;
 
@@ -54,6 +41,30 @@ pub async fn async_work() -> IoResult<()> {
             break;
         }
     }
+
+    Ok(())
+}
+
+pub async fn async_work() -> IoResult<()> {
+    // build the tonic channel to connect to centra server
+    let tonic_channel = tonic::transport::Channel::from_static("http://[::]:8080")
+        .connect()
+        .await
+        .unwrap();
+
+    // build the mpsc channel to dispatch sync tasks in a single machine
+    let (tx, rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
+
+    // boot the machine server here
+    let server = boot_server(tonic_channel.clone(), &tx).await;
+
+    // ----------------- do machine things below -----------------
+    let greet_channel = tonic_channel.clone();
+    let greet_handle = tokio::spawn(async {
+        greet_test(greet_channel).await.expect("greet test failed");
+    });
+
+    greet_handle.await?;
 
     server.await?.expect("server failed");
 
