@@ -2,14 +2,21 @@ syntax = "proto3";
 
 package replica;
 
-message Signature {
+message DiffSource {
   string path = 1;
-  string bytes = 2;
+  bytes sig = 2;
 }
 
-message Patch {
-  string path = 1;
-  string bytes = 2;
+message Patch { bytes delta = 1; }
+
+message SyncMsg {
+  int32 addr = 1;
+  string path = 2;
 }
 
-service Rsync { rpc FetchPatch(Signature) returns (Patch); }
+message ReqRst { bool success = 1; }
+
+service Rsync {
+  rpc FetchPatch(DiffSource) returns (Patch);
+  rpc RequestSync(SyncMsg) returns (ReqRst);
+}

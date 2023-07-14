@@ -1,15 +1,24 @@
+pub mod booter;
 pub mod rsync;
+pub mod replica {
+    include!("../protos/replica.rs");
+}
 
-use self::booter::boot_server;
 use crate::{
     centra::{GreeterClient, HelloRequest},
     debug,
 };
+use booter::boot_server;
 use std::{io::Result as IoResult, thread};
 use tokio::runtime::Runtime;
 use tonic::{transport::Channel, Request};
 
-pub mod booter;
+pub use replica::{
+    rsync_client::RsyncClient,
+    rsync_server::{Rsync, RsyncServer},
+    Patch, ReqRst, DiffSource, SyncMsg,
+};
+
 pub async fn async_work() -> IoResult<()> {
     let channel = Channel::from_static("http://[::]:8080")
         .connect()
