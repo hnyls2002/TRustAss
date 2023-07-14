@@ -13,6 +13,7 @@ use std::io::Result as IoResult;
 use tokio::sync::mpsc;
 use tonic::transport::Server;
 
+use crate::config::CHANNEL_BUFFER_SIZE;
 use crate::info;
 
 pub use controller::{
@@ -38,7 +39,7 @@ pub struct MacInfo {
 pub async fn start_tra(mac_num: usize) -> IoResult<()> {
     let greeter = MyGreeter::default();
 
-    let (tx, rx) = mpsc::channel(mac_num);
+    let (tx, rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
 
     let port_collector = PortCollector { tx: tx.clone() };
 

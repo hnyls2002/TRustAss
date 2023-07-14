@@ -6,30 +6,35 @@ pub mod replica {
 
 use crate::{
     centra::{GreeterClient, HelloRequest},
+    config::CHANNEL_BUFFER_SIZE,
     debug,
 };
 use booter::boot_server;
 use std::{io::Result as IoResult, thread};
-use tokio::runtime::Runtime;
-use tonic::{transport::Channel, Request};
+use tokio::{runtime::Runtime, sync::mpsc};
+use tonic::Request;
 
 pub use replica::{
     rsync_client::RsyncClient,
     rsync_server::{Rsync, RsyncServer},
-    Patch, ReqRst, DiffSource, SyncMsg,
+    DiffSource, Patch, ReqRst, SyncMsg,
 };
 
 pub async fn async_work() -> IoResult<()> {
-    let channel = Channel::from_static("http://[::]:8080")
+    // build the tonic channel to connect to centra server
+    let tonic_channel = tonic::transport::Channel::from_static("http://[::]:8080")
         .connect()
         .await
         .unwrap();
 
+    // build the mpsc channel to dispatch sync tasks in a single machine
+    let (tx, rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
+
     // boot the machine server here
-    let server = boot_server(channel.clone()).await;
+    let server = boot_server(tonic_channel.clone(), &tx).await;
 
     // ----------------- do machine things below -----------------
-    let mut client = GreeterClient::new(channel);
+    let mut client = GreeterClient::new(tonic_channel);
     let mut counter = 0;
 
     loop {

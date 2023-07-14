@@ -15,7 +15,6 @@ async fn demo() {
     let folder_path_str = TMP_PATH.to_string() + "folder/";
     file_tree::init(&folder_path_str).unwrap();
     file_watcher::file_watch_test(&folder_path_str);
-    rsync::rsync().unwrap();
 
     async fn test1() {
         println!("This is test1");
