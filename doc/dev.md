@@ -102,6 +102,26 @@ Multi-Directories
 - 每个directory的处理逻辑是异步的
 - 每个replica需要接受信息，然后将信息发送给多个directories的处理逻辑 (`async_channel`)
 
+### Replica 端 RPC
+
+- 接受来自中心服务器的同步请求`request_sync`
+- 接受来自其他replica的同步`fetch_delta`
+
+并发带来的同步问题
+
+- 需要结合tra的具体算法来考虑
+- 不同的文件之间同步没有冲突，直接并发执行即可
+- 当tra中心服务器向同一个replica发送同一个路径的多次同步请求的时候，需要注意顺序问题？还是不会有时间上的overlap？
+- 一个replaic向另外一个replica fetch delta的时候，需要考虑fetch到的delta是否是它想要的版本的delta？还是说这个问题由tra来保证？
+
+资源抢占问题
+
+- `request_sync`的请求并发执行，必定会有data race的问题
+- 本身server接受`request_sync`的顺序就不能保证
+- 文件抽象内的data race：不懂，看具体代码实现，应该直接加锁就好
+- 文件同时写如何的data race：需要使用锁来保证
+  - 全局资源，对于Hashmap加上RwLock, 对于文件（路径字符串）加上Mutex
+  - 或者使用channel发送给主线程，主线程一个一个处理，同一个文件的请求需要保证先后顺序（可能不需要锁）
 
 ### 其他
 
