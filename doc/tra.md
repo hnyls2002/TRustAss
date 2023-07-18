@@ -124,7 +124,7 @@ Details
 
 ```rust
 // sync A -> B, B is empty
-pub fn sync(file A, file B){
+pub fn sync(A : Replica, B : Replica, f : File){
     if A.m <= B.s {
         // B is derived from A
         do_nothing();
@@ -133,24 +133,55 @@ pub fn sync(file A, file B){
         // they are created independently
         // notice that when the normal condition : A.s >= B.m are also satisfied here
         // as A can see B's modification, and B is empty, so A is created based on B
-        copy_file(A, B); // copy A -> B
+        copy_file(A, B, f); // copy A -> B
     }
     else{
-        report_conflict(A, B);
+        report_conflict(A, B, f);
     }
 }
 
 // sync B -> A, B is empty
-pub fn sync(file A, file B){
+pub fn sync(A : Replica, B : Replica, f : File){
     if A.m <= B.s {
-        delete_file(A);
+        delete_file(A, f);
     }
     else if !(A.c <= B.s){
         // independent creation : do nothing
         do_nothing();
     }
     else{
-        report_conflict(A, B);
+        report_conflict(A, B, f);
     }
 }
 ```
+
+### Synchronizing File Trees
+
+- 对于文件夹，同样分配 sync time 和 modification time
+- `Sync Time` : **element-wise minimum** sync time of its children
+- `Modification Time` : **element-wise maximum** modification time of its children
+
+Algorithm Details
+
+```rust
+pub fn sync_dir(A : Replica, B : Replica, dir : Dir){
+    if A.m <= B.s{
+        // B already has all the changes in A
+        do_nothing();
+    }
+    else{
+        // recursive the tree
+        for child in dir.children{
+            sync(A, B, child);
+        }
+    }
+}
+```
+
+- 对于 sync time, 取我们所有知道的集合的交集
+- 对于 modification time, 取我们所有知道的集合的并集
+- 因为比较的时候是$m_A \leq s_B$，这样想想就很合理
+
+Partial Synchronization
+
+- 在需要同步的文件夹的根目录下跑上面的算法即可
