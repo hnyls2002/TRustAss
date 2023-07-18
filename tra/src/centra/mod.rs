@@ -36,7 +36,7 @@ pub struct RepInfo {
     pub port: u16,
 }
 
-pub async fn start_tra(rep_num: usize) -> IoResult<()> {
+pub async fn start_centra(rep_num: usize) -> IoResult<()> {
     let greeter = MyGreeter::default();
 
     let (tx, rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);

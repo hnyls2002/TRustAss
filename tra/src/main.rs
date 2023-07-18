@@ -38,7 +38,7 @@ async fn main() {
     }
 
     // start the the tra algorithm here
-    let handle = tokio::spawn(centra::start_tra(BASE_REP_NUM));
+    let handle = tokio::spawn(centra::start_centra(BASE_REP_NUM));
 
     reptra::start_reptra(BASE_REP_NUM).expect("Failed to start reptra");
 

@@ -14,7 +14,7 @@
 - 采用不同的线程
 - 本地随即分配可用端口，然后将端口发送给`centra`，`centra`用不同的端口来区分不同的`reptra`
 
-###  增量同步算法
+###  Rsync Algorithm
 
 - Rust 的 `fast_rsync` 库
 - 一次RPC
@@ -22,53 +22,16 @@
   - B : diff with the data, send the patch back
   - A : receive the patch, apply the patch
 
-#### 需要考虑的问题
+### Test
 
-多个文件的同步
-- 开用户态线程，主线程处理字节流，解析元数据分发给用户态线程
-- 如何确定分发的目标用户态线程：连接确立后得到用户态线程编号，后续的数据中将需要处理的用户态线程编号放到元数据中
-- 单个 socket 接口处理多个用户态线程
-- 一个文件多次同步，一致性？版本冲突？用 timestamp 来标识版本？加锁？
+- 外部的 script 不断修改不同 replica 的文件
+- replica 的同步请求由 centra 来统一发送，便于测试
 
-文件修改协议的同时进行
+### Working Mode
 
-- 两次 socket 连接，并且分配不同的协程
-- 协程在建立的时候就应该知道自己所需要处理的协议
-- 建立一个协议的分发器，从而建立不同种类的协程？
-
-Rust `TCPStream` 的这个 socket 接口
-
-- read 和 write 的阻塞问题
-- 是否足够上层：字节流能实现完整的发送和接受逻辑
-- `shutdown` 的含义以及作用
-
-### 测试
-
-- 中心服务器从外部读入测试点，向不同的replica发送文件的修改命令
-- 由专门的协议来进行测试点的输入
-
-### 文件监测
-
-- rust `inotify`库
-
-### 用户态线程（异步处理模式?）
-
-- Rust 的 `async` 和 `await` 机制, 实现异步处理
-- 消息的分发（保证控制流分发的连续性）：`async_channel`库
-- 协议的上下文管理：在协程中做
-
-Response but Asynchronization Communication Mode
-
-- 所有的通讯必须要有回复（一拍一拍来）
-- 但是接受消息都是采用`tokio`的异步`TcpStream`来
-- 不会出现消息交叉的情况
-- 不同的消息也不会share相同的receive buffer
-
-Multi-Directories
-
-- 每个directory同步的监听模式是“你来我往”的
-- 每个directory的处理逻辑是异步的
-- 每个replica需要接受信息，然后将信息发送给多个directories的处理逻辑 (`async_channel`)
+- 所有的同步都以 `fetch_delta` 为基本模式
+- `request_sync(A, B)` 可以表示为向`A`发送`fetch_delta(B)`的请求，也就是`B -> A`的同步
+- `request_sync`可以由centra来发送，在没有centra的时候，也可以在replica之间独立完成
 
 ### Replica 端 RPC
 
@@ -91,8 +54,28 @@ Multi-Directories
   - 全局资源，对于Hashmap加上RwLock, 对于文件（路径字符串）加上Mutex
   - 或者使用channel发送给主线程，主线程一个一个处理，同一个文件的请求需要保证先后顺序（可能不需要锁）
 
-### 其他
+### Directories Watcher
 
-#### 文件名的正则检查和绝对路径
+- 需要监听每一个文件夹的变化
+### Timestamp
 
-- rust `regex`库
+- 利用 `inotify` 来定义一次文件修改/创建/删除的 atomic 操作
+- 对于每一个 atomic 操作， local 的 timestamp 都会 ++
+
+Or 
+
+- ~~本地的修改全部算成一次，只有同步的时候会让 local time ++~~
+
+Freeze
+
+
+- 在确认了一次 sync 的请求之后，应该将两端的 file 全部 freeze ，然后进行 sync
+
+### Tools
+
+- 文件夹遍历：`walkdir`
+- Rsync 算法：`fast_rsync`
+- 异步框架：`tokio`, `futures`
+- gRPC：`tonic`, `prost`, `tonic-build`
+- 正则匹配：`regex`
+- 文件监测：`inotify`

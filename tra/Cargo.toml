@@ -10,7 +10,6 @@ inotify = "0.10.1"
 walkdir = "2.3.3"
 regex = "1.8.4"
 fast_rsync = "0.2.0"
-protobuf = "3.2.0"
 futures = "0.3.28"
 tokio = { version = "1.29.0", features = ["full"] }
 tonic = "0.9.2"
@@ -18,7 +17,6 @@ prost = "0.11.9"
 rand = "0.8.5"
 
 [build-dependencies]
-protobuf-codegen = "3.2.0"
 tonic-build = "0.9.2"
 
 [features]
