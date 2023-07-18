@@ -1,13 +1,13 @@
-use config::{BASE_MAC_NUM, TMP_PATH};
+use config::{BASE_REP_NUM, TMP_PATH};
 
-use crate::machine::rsync;
+use crate::reptra::rsync;
 
 pub mod centra;
 pub mod config;
 pub mod debugger;
 pub mod file_tree;
 pub mod file_watcher;
-pub mod machine;
+pub mod reptra;
 pub mod timestamp;
 
 async fn demo() {
@@ -38,9 +38,9 @@ async fn main() {
     }
 
     // start the the tra algorithm here
-    let handle = tokio::spawn(centra::start_tra(BASE_MAC_NUM));
+    let handle = tokio::spawn(centra::start_tra(BASE_REP_NUM));
 
-    machine::start_machine(BASE_MAC_NUM).expect("Failed to start machine");
+    reptra::start_reptra(BASE_REP_NUM).expect("Failed to start reptra");
 
     handle
         .await

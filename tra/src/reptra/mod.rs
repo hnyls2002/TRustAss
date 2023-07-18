@@ -52,13 +52,13 @@ pub async fn async_work() -> IoResult<()> {
         .await
         .unwrap();
 
-    // build the mpsc channel to dispatch sync tasks in a single machine
+    // build the mpsc channel to dispatch sync tasks in a single reptra
     let (tx, rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
 
-    // boot the machine server here
+    // boot the reptra server here
     let server = boot_server(tonic_channel.clone(), &tx).await;
 
-    // ----------------- do machine things below -----------------
+    // ----------------- do reptra things below -----------------
     let greet_channel = tonic_channel.clone();
     let greet_handle = tokio::spawn(async {
         greet_test(greet_channel).await.expect("greet test failed");
@@ -71,10 +71,10 @@ pub async fn async_work() -> IoResult<()> {
     Ok(())
 }
 
-pub fn start_machine(mac_num: usize) -> IoResult<()> {
-    let mut mac_threads = Vec::new();
-    for _ in 0..mac_num {
-        mac_threads.push(thread::spawn(|| -> IoResult<()> {
+pub fn start_reptra(rep_num: usize) -> IoResult<()> {
+    let mut rep_threads = Vec::new();
+    for _ in 0..rep_num {
+        rep_threads.push(thread::spawn(|| -> IoResult<()> {
             let rt = Runtime::new()?;
 
             // use this to enter the runtime context, so that we can spawn tasks
@@ -88,8 +88,8 @@ pub fn start_machine(mac_num: usize) -> IoResult<()> {
         }));
     }
 
-    for thread in mac_threads {
-        thread.join().expect("mac thread join failed")?;
+    for thread in rep_threads {
+        thread.join().expect("replica thread join failed")?;
     }
 
     Ok(())

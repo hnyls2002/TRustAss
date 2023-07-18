@@ -3,7 +3,7 @@ use fast_rsync::{apply, diff, Signature, SignatureOptions};
 use tokio::sync::mpsc::Sender;
 use tonic::{Request, Response, Status};
 
-use super::{DiffSource, Patch, ReqRst, SyncMsg};
+use super::{DiffSource, Patch, ReqRst, Rsync, SyncMsg};
 
 pub struct Synchronizer {
     pub request_tx: Sender<SyncMsg>,
@@ -14,7 +14,7 @@ pub fn get_data(path: &String) -> Vec<u8> {
 }
 
 #[tonic::async_trait]
-impl super::Rsync for Synchronizer {
+impl Rsync for Synchronizer {
     async fn fetch_patch(
         &self,
         diff_source: Request<DiffSource>,

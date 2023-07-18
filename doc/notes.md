@@ -14,7 +14,7 @@
 - `std::net` 同步阻塞的网络
 - `tokio::net` 异步非阻塞的网络
 
-#### Machine 创建服务端
+#### Reptra 创建服务端
 
 - RPC 每个replica所在的服务器都需要有相互的RPC调用，所以每个replica都需要创建一个服务端
 

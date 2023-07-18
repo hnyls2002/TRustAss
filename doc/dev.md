@@ -3,16 +3,16 @@
 - `(cen)tra`
   - 中心化的服务器，用于启动不同线程上面的replica同步服务
   - 控制流的传输
-  - 测试命令的传输：所有的修改和同步操作由`centra`来统一发送给不同的`mactra`
-- `(mac)tra`
+  - 测试命令的传输：所有的修改和同步操作由`centra`来统一发送给不同的`reptra`
+- `(rep)tra`
   - 接受同步的命令
   - 使用RPC完成fetch patch的操作
-- [ ] 支持不同的`mactra`直接使用命令行来同步
+- [ ] 支持不同的`reptra`直接使用命令行来同步
 
-### Mactra Emulation
+### Reptra Emulation
 
 - 采用不同的线程
-- 本地随即分配可用端口，然后将端口发送给`centra`，`centra`用不同的端口来区分不同的`mactra`
+- 本地随即分配可用端口，然后将端口发送给`centra`，`centra`用不同的端口来区分不同的`reptra`
 
 ###  增量同步算法
 

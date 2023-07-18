@@ -29,14 +29,14 @@ pub use port_collect::PortCollector;
 
 use self::port_collect::collect_ports;
 
-type MacThread = thread::JoinHandle<Result<(), IoError>>;
+type RepThread = thread::JoinHandle<Result<(), IoError>>;
 
-pub struct MacInfo {
-    pub thread_handle: MacThread,
+pub struct RepInfo {
+    pub thread_handle: RepThread,
     pub port: u16,
 }
 
-pub async fn start_tra(mac_num: usize) -> IoResult<()> {
+pub async fn start_tra(rep_num: usize) -> IoResult<()> {
     let greeter = MyGreeter::default();
 
     let (tx, rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
@@ -58,8 +58,8 @@ pub async fn start_tra(mac_num: usize) -> IoResult<()> {
 
     // ----------------- do tra things below -----------------
 
-    // collect the machines' ports here
-    let port_list = collect_ports(rx, mac_num).await;
+    // collect the reptra' ports here
+    let port_list = collect_ports(rx, rep_num).await;
     for port in port_list {
         info!("Port {} is collected.", port);
     }

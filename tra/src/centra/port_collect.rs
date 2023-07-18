@@ -23,9 +23,9 @@ impl PortCollect for PortCollector {
     }
 }
 
-pub async fn collect_ports(mut rx: Receiver<u16>, mac_num: usize) -> Vec<u16> {
+pub async fn collect_ports(mut rx: Receiver<u16>, rep_num: usize) -> Vec<u16> {
     let mut ret = Vec::new();
-    for _ in 0..mac_num {
+    for _ in 0..rep_num {
         if let Some(port) = rx.recv().await {
             ret.push(port);
         }
