@@ -13,7 +13,7 @@ use super::{rsync::Synchronizer, RsyncServer, SyncMsg};
 type HandleType = JoinHandle<Result<(), tonic::transport::Error>>;
 
 #[derive(Default, Clone, Copy)]
-pub struct ReplicaServer {
+pub struct PeerServer {
     pub port: u16,
 }
 

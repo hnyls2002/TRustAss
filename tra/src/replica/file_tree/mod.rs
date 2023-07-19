@@ -1,5 +1,4 @@
-pub mod checker;
-mod node;
+pub mod node;
 
 pub use node::Node;
 use std::io;
@@ -7,8 +6,8 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 use crate::config::{TMP_PATH, TRA_PORT};
-use crate::file_tree::checker::check_legal;
 use crate::info;
+use crate::replica::checker::check_legal;
 
 pub use std::io::Result as IoResult;
 

@@ -13,6 +13,6 @@ fn main() {
 
     tonic_build::configure()
         .out_dir("src/protos")
-        .compile(&["protos/replica.proto"], &["protos"])
+        .compile(&["protos/peer.proto"], &["protos"])
         .unwrap();
 }

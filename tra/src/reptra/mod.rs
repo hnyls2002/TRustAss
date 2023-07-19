@@ -1,7 +1,7 @@
 pub mod booter;
 pub mod rsync;
-pub mod replica {
-    include!("../protos/replica.rs");
+pub mod peer {
+    include!("../protos/peer.rs");
 }
 
 use crate::{
@@ -14,7 +14,7 @@ use std::{io::Result as IoResult, thread};
 use tokio::{runtime::Runtime, sync::mpsc};
 use tonic::Request;
 
-pub use replica::{
+pub use peer::{
     rsync_client::RsyncClient,
     rsync_server::{Rsync, RsyncServer},
     DiffSource, Patch, ReqRst, SyncMsg,
@@ -89,7 +89,7 @@ pub fn start_reptra(rep_num: usize) -> IoResult<()> {
     }
 
     for thread in rep_threads {
-        thread.join().expect("replica thread join failed")?;
+        thread.join().expect("peer thread join failed")?;
     }
 
     Ok(())
