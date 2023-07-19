@@ -1,5 +1,5 @@
-use config::BASE_REP_NUM;
-use replica::{file_tree, file_watcher};
+use config::{BASE_REP_NUM, TRA_PORT};
+use replica::file_watcher;
 
 use crate::reptra::rsync;
 
@@ -12,7 +12,8 @@ pub mod timestamp;
 
 async fn demo() {
     rsync::demo();
-    file_tree::init(&"demo".to_string()).unwrap();
+    let mut rep = replica::Replica::new(TRA_PORT);
+    rep.initialize_from_exist().expect("init from exist failed");
     file_watcher::file_watch_test(&"demo".to_string());
 }
 
