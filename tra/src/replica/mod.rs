@@ -3,7 +3,7 @@ pub mod file_sync;
 pub mod file_tree;
 pub mod file_watcher;
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use crate::{config::TMP_PATH, info};
 
@@ -11,13 +11,19 @@ use self::file_tree::FileTree;
 
 pub use std::io::Result as IoResult;
 
-pub struct Replica<'a> {
+pub struct RepMeta {
     pub port: u16,
     pub prefix: PathBuf,
-    pub online_list: Vec<FileTree<'a>>,
 }
 
-impl<'a> Replica<'a> {
+impl RepMeta {
+    pub fn new(port: u16) -> Self {
+        Self {
+            port,
+            prefix: PathBuf::from(format!("{}{}", TMP_PATH, port)),
+        }
+    }
+
     pub fn to_absolute(&self, relative: &PathBuf) -> IoResult<PathBuf> {
         let mut ret = self.prefix.clone();
         ret.push(relative);
@@ -47,34 +53,38 @@ impl<'a> Replica<'a> {
     }
 }
 
-impl<'a> Replica<'a> {
+pub struct Replica {
+    pub rep_meta: Arc<RepMeta>,
+    pub online_list: Vec<FileTree>,
+}
+
+impl Replica {
     pub fn new(port: u16) -> Self {
         Self {
-            port,
-            prefix: PathBuf::from(format!("{}{}", TMP_PATH, port)),
+            rep_meta: Arc::new(RepMeta::new(port)),
             online_list: Vec::new(),
         }
     }
 
     // make all the exist file tree online
     pub fn initialize_from_exist(&mut self) -> IoResult<()> {
-        let file_list = std::fs::read_dir(&self.prefix)?;
+        let file_list = std::fs::read_dir(&self.rep_meta.prefix)?;
         for res in file_list {
             let path = res.unwrap().path();
             if path.is_dir() {
                 info!(
                     "Dir found : \"{}\", Port id: {}",
-                    self.to_relative(&path).unwrap().display(),
-                    self.port
+                    self.rep_meta.to_relative(&path).unwrap().display(),
+                    self.rep_meta.port
                 );
             } else {
                 info!(
                     "file found : \"{}\", Port id: {}",
-                    self.to_relative(&path).unwrap().display(),
-                    self.port
+                    self.rep_meta.to_relative(&path).unwrap().display(),
+                    self.rep_meta.port
                 );
             }
-            let mut file_tree = FileTree::new_from_exist(&self, &path);
+            let mut file_tree = FileTree::new_from_exist(self.rep_meta.clone(), &path);
             file_tree.organize();
             file_tree.tree();
         }
@@ -83,7 +93,6 @@ impl<'a> Replica<'a> {
 
     pub fn online_one(&mut self) -> IoResult<()> {
         todo!();
-        Ok(())
     }
 
     pub fn clear() {

@@ -1,36 +1,35 @@
 use rand::Rng;
 use std::net::TcpListener as StdListener;
-use tokio::{sync::mpsc::Sender, task::JoinHandle};
+use tokio::task::JoinHandle;
 use tonic::{
     transport::{server::TcpIncoming, Server},
     Request,
 };
 
-use crate::centra::{PortCollectClient, PortNumber};
+use crate::{
+    centra::{PortCollectClient, PortNumber},
+    replica::Replica,
+};
 
-use super::{rsync::Synchronizer, RsyncServer, SyncMsg};
+use super::RsyncServer;
 
 type HandleType = JoinHandle<Result<(), tonic::transport::Error>>;
 
-#[derive(Default, Clone, Copy)]
 pub struct PeerServer {
-    pub port: u16,
+    pub rep: Replica,
 }
 
-pub async fn boot_server(
-    tonic_channel: tonic::transport::Channel,
-    request_tx: &Sender<SyncMsg>,
-) -> HandleType {
+pub async fn boot_server(tonic_channel: tonic::transport::Channel) -> HandleType {
     let mut rng = rand::thread_rng();
     let (port, handle) = loop {
         let port = rng.gen_range(49152..=65535);
         let listener = StdListener::bind(format!("[::]:{}", port));
-        let server_inner = Synchronizer {
-            request_tx: request_tx.clone(),
-        };
         if let Ok(listener) = listener {
             let listener = tokio::net::TcpListener::from_std(listener).unwrap();
             let incoming = TcpIncoming::from_listener(listener, true, None).unwrap();
+            let server_inner = PeerServer {
+                rep: Replica::new(port),
+            };
             let server = Server::builder()
                 .add_service(RsyncServer::new(server_inner))
                 // .serve_with_incoming_shutdown(incoming, ctrl_c_singal());
@@ -44,7 +43,7 @@ pub async fn boot_server(
     let mut port_sender = PortCollectClient::new(tonic_channel);
 
     port_sender
-        .send_port(Request::new(PortNumber { port }))
+        .send_port(Request::new(PortNumber { port: port as i32 }))
         .await
         .expect("failed to send port number");
 

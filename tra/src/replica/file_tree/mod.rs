@@ -1,19 +1,21 @@
 pub mod node;
 
-use crate::replica::Replica;
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 use walkdir::WalkDir;
 
 pub use node::Node;
 pub use std::io::Result as IoResult;
 
-pub struct FileTree<'a> {
-    pub parent: &'a Replica<'a>,
+use super::RepMeta;
+
+pub struct FileTree {
+    pub rep_meta: Arc<RepMeta>,
     pub root: Node,
 }
 
-impl<'a> FileTree<'a> {
+impl FileTree {
     // decomp a path to a vector of string
     pub fn decompose(path: &PathBuf) -> Vec<String> {
         let mut tmp_path = path.clone();
@@ -25,9 +27,9 @@ impl<'a> FileTree<'a> {
         ret
     }
 
-    pub fn new_from_exist(parent: &'a Replica, root_path: &PathBuf) -> Self {
+    pub fn new_from_exist(rep_meta: Arc<RepMeta>, root_path: &PathBuf) -> Self {
         let mut file_tree = Self {
-            parent,
+            rep_meta: rep_meta.clone(),
             root: Node {
                 path: Box::new(root_path.clone()),
                 is_dir: root_path.is_dir(),
@@ -37,13 +39,13 @@ impl<'a> FileTree<'a> {
         };
 
         let absolute_path = file_tree
-            .parent
+            .rep_meta
             .to_absolute(root_path)
             .expect("to absolute path fails");
 
         let files = WalkDir::new(absolute_path).into_iter();
         for file in files.filter_map(|e| e.ok()) {
-            let path = parent
+            let path = rep_meta
                 .to_relative(&file.into_path())
                 .expect("to relative path fails");
             file_tree.insert(path).expect("New file tree build fails");
@@ -64,7 +66,7 @@ impl<'a> FileTree<'a> {
             {
                 current.children.push(Node {
                     path: Box::new(path.clone()),
-                    is_dir: self.parent.check_is_dir(&path),
+                    is_dir: self.rep_meta.check_is_dir(&path),
                     file_name: entry.clone(),
                     children: Vec::new(),
                 })

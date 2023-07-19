@@ -6,12 +6,12 @@ pub mod peer {
 
 use crate::{
     centra::{GreeterClient, HelloRequest},
-    config::{CHANNEL_BUFFER_SIZE, TRA_STATIC_ADDR},
+    config::TRA_STATIC_ADDR,
     debug,
 };
 use booter::boot_server;
 use std::{io::Result as IoResult, thread};
-use tokio::{runtime::Runtime, sync::mpsc};
+use tokio::runtime::Runtime;
 use tonic::Request;
 
 pub use peer::{
@@ -52,11 +52,8 @@ pub async fn async_work() -> IoResult<()> {
         .await
         .unwrap();
 
-    // build the mpsc channel to dispatch sync tasks in a single reptra
-    let (tx, rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
-
     // boot the reptra server here
-    let server = boot_server(tonic_channel.clone(), &tx).await;
+    let server = boot_server(tonic_channel.clone()).await;
 
     // ----------------- do reptra things below -----------------
     let greet_channel = tonic_channel.clone();

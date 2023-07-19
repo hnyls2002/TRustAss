@@ -1,20 +1,15 @@
 use fast_rsync::{apply, diff, Signature, SignatureOptions};
 
-use tokio::sync::mpsc::Sender;
 use tonic::{Request, Response, Status};
 
-use super::{DiffSource, Patch, ReqRst, Rsync, SyncMsg};
-
-pub struct Synchronizer {
-    pub request_tx: Sender<SyncMsg>,
-}
+use super::{booter::PeerServer, DiffSource, Patch, ReqRst, Rsync, SyncMsg};
 
 pub fn get_data(path: &String) -> Vec<u8> {
     todo!()
 }
 
 #[tonic::async_trait]
-impl Rsync for Synchronizer {
+impl Rsync for PeerServer {
     async fn fetch_patch(
         &self,
         diff_source: Request<DiffSource>,
@@ -31,11 +26,6 @@ impl Rsync for Synchronizer {
     }
 
     async fn request_sync(&self, sync_msg: Request<SyncMsg>) -> Result<Response<ReqRst>, Status> {
-        let sync_msg = sync_msg.into_inner();
-        self.request_tx
-            .send(sync_msg)
-            .await
-            .expect("sync message send failed");
         todo!()
     }
 }
@@ -53,5 +43,8 @@ pub fn demo() {
     let mut res: Vec<u8> = Vec::new();
     diff(&index_sig, data2, &mut buf).unwrap();
     apply(data1, &buf, &mut res).unwrap();
-    println!("rsync demo : {}", std::str::from_utf8(res.as_slice()).unwrap());
+    println!(
+        "rsync demo : {}",
+        std::str::from_utf8(res.as_slice()).unwrap()
+    );
 }
