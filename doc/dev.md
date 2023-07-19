@@ -79,3 +79,5 @@ Freeze
 - gRPC：`tonic`, `prost`, `tonic-build`
 - 正则匹配：`regex`
 - 文件监测：`inotify`
+
+<img src="assets/path-checker.png" alt="relative-path" style="zoom:67%;" />

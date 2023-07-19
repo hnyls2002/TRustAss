@@ -53,5 +53,5 @@ pub fn demo() {
     let mut res: Vec<u8> = Vec::new();
     diff(&index_sig, data2, &mut buf).unwrap();
     apply(data1, &buf, &mut res).unwrap();
-    println!("{}", std::str::from_utf8(res.as_slice()).unwrap());
+    println!("rsync demo : {}", std::str::from_utf8(res.as_slice()).unwrap());
 }

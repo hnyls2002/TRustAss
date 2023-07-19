@@ -14,6 +14,7 @@ use tokio::sync::mpsc;
 use tonic::transport::Server;
 
 use crate::config::CHANNEL_BUFFER_SIZE;
+use crate::config::TRA_PORT;
 use crate::info;
 
 pub use controller::{
@@ -47,7 +48,7 @@ pub async fn start_centra(rep_num: usize) -> IoResult<()> {
         .add_service(GreeterServer::new(greeter))
         .add_service(PortCollectServer::new(port_collector))
         // .serve_with_shutdown("[::]:8080".parse().unwrap(), ctrl_c_singal());
-        .serve("[::]:8080".parse().unwrap());
+        .serve(format!("[::]:{}", TRA_PORT).parse().unwrap());
 
     // boot the tra server here
     let handle = tokio::spawn(async {

@@ -6,7 +6,7 @@ pub mod replica {
 
 use crate::{
     centra::{GreeterClient, HelloRequest},
-    config::CHANNEL_BUFFER_SIZE,
+    config::{CHANNEL_BUFFER_SIZE, TRA_STATIC_ADDR},
     debug,
 };
 use booter::boot_server;
@@ -47,7 +47,7 @@ pub async fn greet_test(tonic_channel: tonic::transport::Channel) -> IoResult<()
 
 pub async fn async_work() -> IoResult<()> {
     // build the tonic channel to connect to centra server
-    let tonic_channel = tonic::transport::Channel::from_static("http://[::]:8080")
+    let tonic_channel = tonic::transport::Channel::from_static(TRA_STATIC_ADDR)
         .connect()
         .await
         .unwrap();
