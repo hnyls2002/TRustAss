@@ -5,11 +5,9 @@ pub mod file_watcher;
 
 use std::{path::PathBuf, sync::Arc};
 
-use crate::{config::TMP_PATH, info};
+use crate::{config::TMP_PATH, get_res, info, MyResult};
 
 use self::file_tree::FileTree;
-
-pub use std::io::Result as IoResult;
 
 pub struct RepMeta {
     pub port: u16,
@@ -24,20 +22,17 @@ impl RepMeta {
         }
     }
 
-    pub fn to_absolute(&self, relative: &PathBuf) -> IoResult<PathBuf> {
+    pub fn to_absolute(&self, relative: &PathBuf) -> PathBuf {
         let mut ret = self.prefix.clone();
         ret.push(relative);
-        ret.canonicalize()
+        ret
     }
 
-    pub fn to_relative(&self, absolute: &PathBuf) -> IoResult<PathBuf> {
-        if let Ok(res) = absolute.clone().strip_prefix(&self.prefix) {
-            return Ok(res.to_path_buf());
-        }
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Not a relative path",
-        ))
+    pub fn to_relative(&self, absolute: &PathBuf) -> Option<PathBuf> {
+        absolute
+            .clone()
+            .strip_prefix(&self.prefix)
+            .map_or(None, |f| Some(f.to_path_buf()))
     }
 
     pub fn check_exist(&self, relative: &PathBuf) -> bool {
@@ -67,8 +62,8 @@ impl Replica {
     }
 
     // make all the exist file tree online
-    pub fn initialize_from_exist(&mut self) -> IoResult<()> {
-        let file_list = std::fs::read_dir(&self.rep_meta.prefix)?;
+    pub fn initialize_from_exist(&mut self) -> MyResult<()> {
+        let file_list = get_res!(std::fs::read_dir(&self.rep_meta.prefix));
         for res in file_list {
             let path = res.unwrap().path();
             if path.is_dir() {
@@ -84,14 +79,14 @@ impl Replica {
                     self.rep_meta.port
                 );
             }
-            let mut file_tree = FileTree::new_from_exist(self.rep_meta.clone(), &path);
+            let mut file_tree = FileTree::new_from_exist(self.rep_meta.clone(), &path)?;
             file_tree.organize();
             file_tree.tree();
         }
         Ok(())
     }
 
-    pub fn online_one(&mut self) -> IoResult<()> {
+    pub fn online_one(&mut self, relative_path: &PathBuf) -> MyResult<()> {
         todo!();
     }
 

@@ -1,12 +1,12 @@
 pub mod node;
 
-use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use walkdir::WalkDir;
 
 pub use node::Node;
-pub use std::io::Result as IoResult;
+
+use crate::MyResult;
 
 use super::RepMeta;
 
@@ -27,7 +27,7 @@ impl FileTree {
         ret
     }
 
-    pub fn new_from_exist(rep_meta: Arc<RepMeta>, root_path: &PathBuf) -> Self {
+    pub fn new_from_exist(rep_meta: Arc<RepMeta>, root_path: &PathBuf) -> MyResult<Self> {
         let mut file_tree = Self {
             rep_meta: rep_meta.clone(),
             root: Node {
@@ -38,10 +38,7 @@ impl FileTree {
             },
         };
 
-        let absolute_path = file_tree
-            .rep_meta
-            .to_absolute(root_path)
-            .expect("to absolute path fails");
+        let absolute_path = file_tree.rep_meta.to_absolute(root_path);
 
         let files = WalkDir::new(absolute_path).into_iter();
         for file in files.filter_map(|e| e.ok()) {
@@ -50,13 +47,18 @@ impl FileTree {
                 .expect("to relative path fails");
             file_tree.insert(path).expect("New file tree build fails");
         }
-        file_tree
+
+        Ok(file_tree)
     }
 
-    pub fn insert(&mut self, path: PathBuf) -> io::Result<()> {
+    pub fn insert(&mut self, path: PathBuf) -> MyResult<()> {
         let mut walk = Self::decompose(&path);
         let mut current = &mut self.root;
-        assert_eq!(current.file_name, walk.pop().unwrap());
+
+        if Some(current.file_name.clone()) != walk.pop() {
+            return Err("File tree insert error : first entry not match".into());
+        }
+
         while !walk.is_empty() {
             let entry = walk.pop().unwrap();
             if !current

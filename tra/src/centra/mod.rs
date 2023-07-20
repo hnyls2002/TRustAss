@@ -7,15 +7,13 @@ pub mod controller {
 
 use std::thread;
 
-use std::io::Error as IoError;
-use std::io::Result as IoResult;
-
 use tokio::sync::mpsc;
 use tonic::transport::Server;
 
 use crate::config::CHANNEL_BUFFER_SIZE;
 use crate::config::TRA_PORT;
 use crate::info;
+use crate::MyResult;
 
 pub use controller::{
     greeter_client::GreeterClient,
@@ -30,14 +28,14 @@ pub use port_collect::PortCollector;
 
 use self::port_collect::collect_ports;
 
-type RepThread = thread::JoinHandle<Result<(), IoError>>;
+type RepThread = thread::JoinHandle<Result<(), std::io::Error>>;
 
 pub struct RepInfo {
     pub thread_handle: RepThread,
     pub port: u16,
 }
 
-pub async fn start_centra(rep_num: usize) -> IoResult<()> {
+pub async fn start_centra(rep_num: usize) -> MyResult<()> {
     let greeter = MyGreeter::default();
 
     let (tx, rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
@@ -52,9 +50,10 @@ pub async fn start_centra(rep_num: usize) -> IoResult<()> {
 
     // boot the tra server here
     let handle = tokio::spawn(async {
-        server.await.unwrap();
+        let res = server.await;
         println!("");
         info!("Shutting down the tra server...");
+        res
     });
 
     // ----------------- do tra things below -----------------
@@ -65,7 +64,11 @@ pub async fn start_centra(rep_num: usize) -> IoResult<()> {
         info!("Port {} is collected.", port);
     }
 
-    handle.await?;
+    let join_res = handle.await;
+
+    if join_res.is_err() || join_res.unwrap().is_err() {
+        return Err("The centra server is down unexpectedly.".into());
+    }
 
     Ok(())
 }

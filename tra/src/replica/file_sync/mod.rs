@@ -1,5 +1,5 @@
-pub use std::io::Result as IoResult;
+use crate::MyResult;
 
-pub async fn sync_file() -> IoResult<()> {
+pub async fn sync_file() -> MyResult<()> {
     Ok(())
 }

@@ -7,10 +7,10 @@ pub mod peer {
 use crate::{
     centra::{GreeterClient, HelloRequest},
     config::TRA_STATIC_ADDR,
-    debug,
+    debug, get_res, MyResult,
 };
 use booter::boot_server;
-use std::{io::Result as IoResult, thread};
+use std::thread;
 use tokio::runtime::Runtime;
 use tonic::Request;
 
@@ -20,7 +20,7 @@ pub use peer::{
     DiffSource, Patch, ReqRst, SyncMsg,
 };
 
-pub async fn greet_test(tonic_channel: tonic::transport::Channel) -> IoResult<()> {
+pub async fn greet_test(tonic_channel: tonic::transport::Channel) -> MyResult<()> {
     let mut client = GreeterClient::new(tonic_channel);
     let mut counter = 0;
 
@@ -45,7 +45,7 @@ pub async fn greet_test(tonic_channel: tonic::transport::Channel) -> IoResult<()
     Ok(())
 }
 
-pub async fn async_work() -> IoResult<()> {
+pub async fn async_work() -> MyResult<()> {
     // build the tonic channel to connect to centra server
     let tonic_channel = tonic::transport::Channel::from_static(TRA_STATIC_ADDR)
         .connect()
@@ -53,7 +53,7 @@ pub async fn async_work() -> IoResult<()> {
         .unwrap();
 
     // boot the reptra server here
-    let server = boot_server(tonic_channel.clone()).await;
+    let server_handle = boot_server(tonic_channel.clone()).await;
 
     // ----------------- do reptra things below -----------------
     let greet_channel = tonic_channel.clone();
@@ -61,18 +61,22 @@ pub async fn async_work() -> IoResult<()> {
         greet_test(greet_channel).await.expect("greet test failed");
     });
 
-    greet_handle.await?;
+    if greet_handle.await.is_err() {
+        return Err("greet server failed".into());
+    }
 
-    server.await?.expect("server failed");
+    if server_handle.await.is_err() {
+        return Err("reptra server failed".into());
+    }
 
     Ok(())
 }
 
-pub fn start_reptra(rep_num: usize) -> IoResult<()> {
+pub fn start_reptra(rep_num: usize) -> MyResult<()> {
     let mut rep_threads = Vec::new();
     for _ in 0..rep_num {
-        rep_threads.push(thread::spawn(|| -> IoResult<()> {
-            let rt = Runtime::new()?;
+        rep_threads.push(thread::spawn(|| -> MyResult<()> {
+            let rt = get_res!(Runtime::new());
 
             // use this to enter the runtime context, so that we can spawn tasks
             // that is, calling `boot_server()` here would not cause panic
