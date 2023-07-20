@@ -1,10 +1,17 @@
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub enum NodeStatus {
+    Exist,
+    Deleted,
+}
+
 pub struct Node {
     pub path: Box<PathBuf>,
     pub is_dir: bool,
     pub file_name: String,
     pub children: Vec<Node>,
+    pub status: NodeStatus,
 }
 
 impl Node {

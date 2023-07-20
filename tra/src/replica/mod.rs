@@ -7,7 +7,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use crate::{config::TMP_PATH, get_res, info, MyResult};
 
-use self::file_tree::FileTree;
+use self::file_tree::{node::NodeStatus, FileTree};
 
 pub struct RepMeta {
     pub port: u16,
@@ -46,6 +46,12 @@ impl RepMeta {
         path.push(relative);
         path.is_dir()
     }
+
+    pub fn get_status(&self, relative: &PathBuf) -> NodeStatus {
+        self.check_exist(relative)
+            .then(|| NodeStatus::Exist)
+            .unwrap_or(NodeStatus::Deleted)
+    }
 }
 
 pub struct Replica {
@@ -79,7 +85,7 @@ impl Replica {
                     self.rep_meta.port
                 );
             }
-            let mut file_tree = FileTree::new_from_exist(self.rep_meta.clone(), &path)?;
+            let mut file_tree = FileTree::new_from_path(self.rep_meta.clone(), &path)?;
             file_tree.organize();
             file_tree.tree();
         }
@@ -87,7 +93,15 @@ impl Replica {
     }
 
     pub fn online_one(&mut self, relative_path: &PathBuf) -> MyResult<()> {
-        todo!();
+        if relative_path.components().count() != 1 {
+            return Err("online file(folder) must be in the root dir".into());
+        }
+        let file_tree = get_res!(FileTree::new_from_path(
+            self.rep_meta.clone(),
+            relative_path
+        ));
+        self.online_list.push(file_tree);
+        Ok(())
     }
 
     pub fn clear() {

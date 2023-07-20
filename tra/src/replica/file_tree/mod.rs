@@ -8,6 +8,8 @@ pub use node::Node;
 
 use crate::MyResult;
 
+use self::node::NodeStatus;
+
 use super::RepMeta;
 
 pub struct FileTree {
@@ -27,7 +29,7 @@ impl FileTree {
         ret
     }
 
-    pub fn new_from_exist(rep_meta: Arc<RepMeta>, root_path: &PathBuf) -> MyResult<Self> {
+    pub fn new_from_path(rep_meta: Arc<RepMeta>, root_path: &PathBuf) -> MyResult<Self> {
         let mut file_tree = Self {
             rep_meta: rep_meta.clone(),
             root: Node {
@@ -35,17 +37,21 @@ impl FileTree {
                 is_dir: root_path.is_dir(),
                 file_name: root_path.file_name().unwrap().to_str().unwrap().to_string(),
                 children: Vec::new(),
+                status: rep_meta.get_status(root_path),
             },
         };
+
+        if file_tree.root.status == NodeStatus::Deleted {
+            // not created yet
+            return Ok(file_tree);
+        }
 
         let absolute_path = file_tree.rep_meta.to_absolute(root_path);
 
         let files = WalkDir::new(absolute_path).into_iter();
         for file in files.filter_map(|e| e.ok()) {
-            let path = rep_meta
-                .to_relative(&file.into_path())
-                .expect("to relative path fails");
-            file_tree.insert(path).expect("New file tree build fails");
+            let path = rep_meta.to_relative(&file.into_path()).unwrap();
+            file_tree.insert(path).expect("insert into file tree fails");
         }
 
         Ok(file_tree)
@@ -66,11 +72,14 @@ impl FileTree {
                 .iter()
                 .any(|child| child.file_name == entry)
             {
+                let is_dir = self.rep_meta.check_is_dir(&path);
+                let status = self.rep_meta.get_status(&path);
                 current.children.push(Node {
                     path: Box::new(path.clone()),
-                    is_dir: self.rep_meta.check_is_dir(&path),
+                    is_dir,
                     file_name: entry.clone(),
                     children: Vec::new(),
+                    status,
                 })
             }
             current = current
