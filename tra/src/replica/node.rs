@@ -4,7 +4,7 @@ use async_recursion::async_recursion;
 
 use tokio::sync::RwLock;
 
-use crate::replica::RepMeta;
+use crate::{get_res, replica::RepMeta, MyResult};
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum NodeStatus {
@@ -34,7 +34,7 @@ impl Node {
     pub fn new(path: &PathBuf, rep_meta: Arc<RepMeta>) -> Self {
         let data = NodeData {
             children: HashMap::new(),
-            status: NodeStatus::Unknow,
+            status: NodeStatus::Exist,
         };
         let is_dir = rep_meta.check_is_dir(path);
         Node {
@@ -45,6 +45,26 @@ impl Node {
         }
     }
 
+    #[async_recursion]
+    pub async fn init_subfiles(&mut self) -> MyResult<()> {
+        let static_path = self.path.as_path();
+        let mut sub_files = get_res!(tokio::fs::read_dir(static_path).await);
+        while let Some(sub_file) = get_res!(sub_files.next_entry().await) {
+            let mut new_node = Node::new(&sub_file.path(), self.rep_meta.clone());
+            if new_node.is_dir {
+                new_node.init_subfiles().await?;
+            }
+            self.data
+                .write()
+                .await
+                .children
+                .insert(new_node.file_name(), Arc::new(new_node));
+        }
+        Ok(())
+    }
+}
+
+impl Node {
     #[async_recursion]
     pub async fn tree(&self, is_last: Vec<bool>) {
         // println!("{}", self.path.display());

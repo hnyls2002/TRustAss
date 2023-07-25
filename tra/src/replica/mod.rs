@@ -8,7 +8,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use tokio::sync::RwLock;
 
-use crate::{config::TMP_PATH, MyResult};
+use crate::{config::TMP_PATH, get_res, MyResult};
 
 use self::node::{Node, NodeStatus};
 
@@ -93,6 +93,20 @@ impl Replica {
         }
     }
 
+    pub async fn init_file_trees(&mut self) -> MyResult<()> {
+        let mut tree_list = get_res!(tokio::fs::read_dir(&self.rep_meta.prefix).await);
+        let mut file_trees = self.file_trees.write().await;
+        while let Some(tree_root) = get_res!(tree_list.next_entry().await) {
+            let path = tree_root.path();
+            let mut new_node = Node::new(&path, self.rep_meta.clone());
+            if new_node.is_dir {
+                new_node.init_subfiles().await?;
+            }
+            file_trees.insert(new_node.file_name(), Arc::new(new_node));
+        }
+        Ok(())
+    }
+
     // modify && create && delete
     pub fn modify(&mut self) -> MyResult<()> {
         todo!()
@@ -108,6 +122,28 @@ impl Replica {
 
     pub fn clear() {
         todo!();
+    }
+}
+
+impl Replica {
+    pub async fn tree(&self) {
+        let mut tmp_list = Vec::new();
+
+        let file_trees = self.file_trees.read().await;
+
+        let mut it = file_trees.iter();
+
+        while let Some((name, node)) = it.next() {
+            tmp_list.push((node.is_dir, name));
+        }
+
+        tmp_list.sort_by(|a, b| a.cmp(b));
+
+        for (_, name) in &tmp_list {
+            let now_flag = *name == tmp_list.last().unwrap().1;
+            let new_is_last = vec![now_flag];
+            file_trees.get(*name).unwrap().tree(new_is_last).await;
+        }
     }
 }
 

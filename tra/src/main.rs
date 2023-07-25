@@ -4,7 +4,7 @@ pub mod debugger;
 pub mod replica;
 pub mod reptra;
 
-use config::BASE_REP_NUM;
+use config::{BASE_REP_NUM, TRA_PORT};
 use replica::file_watcher;
 use reptra::rsync;
 
@@ -12,7 +12,9 @@ pub use config::MyResult;
 
 async fn demo() {
     rsync::demo();
-    // let mut rep = replica::Replica::new(TRA_PORT);
+    let mut rep = replica::Replica::new(TRA_PORT);
+    rep.init_file_trees().await.expect("Failed to init replica");
+    rep.tree().await;
     file_watcher::file_watch_test(&"demo".to_string());
 }
 
