@@ -1,17 +1,21 @@
 pub mod checker;
 pub mod file_sync;
-pub mod file_tree;
 pub mod file_watcher;
+pub mod node;
+pub mod timestamp;
 
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use crate::{config::TMP_PATH, get_res, info, MyResult};
+use tokio::sync::RwLock;
 
-use self::file_tree::{node::NodeStatus, FileTree};
+use crate::{config::TMP_PATH, MyResult};
+
+use self::node::{Node, NodeStatus};
 
 pub struct RepMeta {
     pub port: u16,
     pub prefix: PathBuf,
+    pub counter: RwLock<usize>,
 }
 
 impl RepMeta {
@@ -19,6 +23,7 @@ impl RepMeta {
         Self {
             port,
             prefix: PathBuf::from(format!("{}{}", TMP_PATH, port)),
+            counter: RwLock::new(0),
         }
     }
 
@@ -52,59 +57,66 @@ impl RepMeta {
             .then(|| NodeStatus::Exist)
             .unwrap_or(NodeStatus::Deleted)
     }
+
+    pub async fn read_counter(&self) -> usize {
+        self.counter.read().await.clone()
+    }
+
+    pub async fn add_counter(&mut self) -> usize {
+        let mut now = self.counter.write().await;
+        *now += 1;
+        *now
+    }
 }
 
 pub struct Replica {
     pub rep_meta: Arc<RepMeta>,
-    pub online_list: Vec<FileTree>,
+    pub file_trees: RwLock<HashMap<String, Arc<Node>>>,
+}
+
+pub enum ModType {
+    Modify,
+    Create,
+    Delete,
+}
+
+pub struct ModOption {
+    pub ty: ModType,
+    pub is_dir: bool,
 }
 
 impl Replica {
     pub fn new(port: u16) -> Self {
         Self {
             rep_meta: Arc::new(RepMeta::new(port)),
-            online_list: Vec::new(),
+            file_trees: RwLock::new(HashMap::new()),
         }
     }
 
-    // make all the exist file tree online
-    pub fn initialize_from_exist(&mut self) -> MyResult<()> {
-        let file_list = get_res!(std::fs::read_dir(&self.rep_meta.prefix));
-        for res in file_list {
-            let path = res.unwrap().path();
-            if path.is_dir() {
-                info!(
-                    "Dir found : \"{}\", Port id: {}",
-                    self.rep_meta.to_relative(&path).unwrap().display(),
-                    self.rep_meta.port
-                );
-            } else {
-                info!(
-                    "file found : \"{}\", Port id: {}",
-                    self.rep_meta.to_relative(&path).unwrap().display(),
-                    self.rep_meta.port
-                );
-            }
-            let mut file_tree = FileTree::new_from_path(self.rep_meta.clone(), &path)?;
-            file_tree.organize();
-            file_tree.tree();
-        }
-        Ok(())
+    // modify && create && delete
+    pub fn modify(&mut self) -> MyResult<()> {
+        todo!()
     }
 
-    pub fn online_one(&mut self, relative_path: &PathBuf) -> MyResult<()> {
-        if relative_path.components().count() != 1 {
-            return Err("online file(folder) must be in the root dir".into());
-        }
-        let file_tree = get_res!(FileTree::new_from_path(
-            self.rep_meta.clone(),
-            relative_path
-        ));
-        self.online_list.push(file_tree);
-        Ok(())
+    pub fn sync_dir(&mut self) -> MyResult<()> {
+        todo!()
+    }
+
+    pub fn sync_file(&mut self) -> MyResult<()> {
+        todo!()
     }
 
     pub fn clear() {
         todo!();
     }
+}
+
+pub fn decompose(path: &PathBuf) -> Vec<String> {
+    let mut tmp_path = path.clone();
+    let mut ret: Vec<String> = Vec::new();
+    while tmp_path.file_name().is_some() {
+        ret.push(tmp_path.file_name().unwrap().to_str().unwrap().to_string());
+        tmp_path.pop();
+    }
+    ret
 }
