@@ -10,10 +10,7 @@ use tokio::sync::RwLock;
 
 use crate::{config::TMP_PATH, get_res, MyResult};
 
-use self::{
-    node::{Node, NodeStatus},
-    timestamp::CreateTime,
-};
+use self::node::{Node, NodeStatus};
 
 pub struct RepMeta {
     pub port: u16,
@@ -83,13 +80,6 @@ impl RepMeta {
         *now += 1;
         *now
     }
-
-    pub async fn get_create_time(&self) -> CreateTime {
-        CreateTime {
-            id: self.port,
-            time: *self.counter.read().await,
-        }
-    }
 }
 
 pub struct Replica {
@@ -100,23 +90,15 @@ pub struct Replica {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum ModType {
     Modify,
-    Create(CreateTime),
+    Create,
     Delete,
 }
 
 #[derive(Copy, Clone)]
 pub struct ModOption {
     pub ty: ModType,
+    pub time: usize,
     pub is_dir: bool,
-}
-
-impl ModOption {
-    pub fn create_time(&self) -> Option<CreateTime> {
-        match self.ty {
-            ModType::Create(time) => Some(time),
-            _ => None,
-        }
-    }
 }
 
 impl Replica {
@@ -129,19 +111,15 @@ impl Replica {
 
     pub async fn init_file_trees(&mut self) -> MyResult<()> {
         // init the whole file tree, all inintial is in time 1
-        let init_time = CreateTime {
-            id: self.rep_meta.port,
-            time: self.rep_meta.add_counter().await,
-        };
+        let init_counter = self.rep_meta.add_counter().await;
 
         let mut tree_list = get_res!(tokio::fs::read_dir(&self.rep_meta.prefix).await);
         let mut file_trees = self.file_trees.write().await;
         while let Some(tree_root) = get_res!(tree_list.next_entry().await) {
             let path = tree_root.path();
-            let create_time = self.rep_meta.get_create_time().await;
-            let mut new_node = Node::new_from_create(&path, create_time, self.rep_meta.clone());
+            let mut new_node = Node::new_from_create(&path, init_counter, self.rep_meta.clone());
             if new_node.is_dir {
-                new_node.init_subfiles(&init_time).await?;
+                new_node.init_subfiles(init_counter).await?;
             }
             file_trees.insert(new_node.file_name(), Arc::new(new_node));
         }
@@ -155,14 +133,13 @@ impl Replica {
         if walk.len() == 0 {
             // empty path
             return Err("Modify Error : empty path".into());
-        } else if walk.len() == 1 && op.create_time().is_some() {
+        } else if walk.len() == 1 && op.ty == ModType::Create {
             // detect creating a new file in the root dir
             let mut file_trees = self.file_trees.write().await;
             if file_trees.contains_key(&walk[0]) {
                 return Err("Modify Error : node already exists when creating".into());
             }
-            let create_time = op.create_time().unwrap();
-            let new_node = Node::new_from_create(path, create_time, self.rep_meta.clone());
+            let new_node = Node::new_from_create(path, op.time, self.rep_meta.clone());
             file_trees.insert(new_node.file_name(), Arc::new(new_node));
         } else {
             // other cases

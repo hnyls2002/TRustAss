@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 use crate::{get_res, replica::RepMeta, MyResult};
 
 use super::{
-    timestamp::{CreateTime, VectorTime},
+    timestamp::{SingletonTime, VectorTime},
     ModOption, ModType,
 };
 
@@ -15,15 +15,38 @@ use super::{
 pub enum NodeStatus {
     Exist,
     Deleted,
-    Unknow,
 }
 
 pub struct NodeData {
     pub children: HashMap<String, Arc<Node>>,
     pub mod_time: VectorTime,
     pub sync_time: VectorTime,
-    pub create_time: CreateTime,
+    pub create_time: SingletonTime,
     pub status: NodeStatus,
+}
+
+impl NodeData {
+    pub fn modify(&mut self, id: u16, time: usize) {
+        self.mod_time.update(id, time);
+        self.sync_time.update(id, time);
+    }
+
+    pub fn delete(&mut self, id: u16, time: usize) -> VectorTime {
+        // the file system cannot delete a directory that is not empty
+        assert!(self.children.is_empty());
+
+        // a file once deleted, the mod time is useless
+        // however, its ancestor may still need it
+        let mut ret = self.mod_time.clone();
+        ret.update(id, time);
+        self.mod_time.clear();
+
+        self.sync_time.update(id, time);
+        // not clear create_time here, though it is useless
+        self.status = NodeStatus::Deleted;
+
+        ret
+    }
 }
 
 pub struct Node {
@@ -39,15 +62,12 @@ impl Node {
     }
 
     // locally create a file
-    pub fn new_from_create(
-        path: &PathBuf,
-        create_time: CreateTime,
-        rep_meta: Arc<RepMeta>,
-    ) -> Self {
+    pub fn new_from_create(path: &PathBuf, time: usize, rep_meta: Arc<RepMeta>) -> Self {
+        let create_time = SingletonTime::new(rep_meta.port, time);
         let data = NodeData {
             children: HashMap::new(),
-            mod_time: VectorTime::from_create_time(&create_time),
-            sync_time: VectorTime::from_create_time(&create_time),
+            mod_time: VectorTime::from_singleton_time(&create_time),
+            sync_time: VectorTime::from_singleton_time(&create_time),
             create_time,
             status: NodeStatus::Exist,
         };
@@ -60,18 +80,13 @@ impl Node {
         }
     }
 
-    // sync from another replica, so create a file
-    pub fn new_from_sync(path: &PathBuf, rep_meta: Arc<RepMeta>) -> Self {
-        todo!()
-    }
-
     #[async_recursion]
-    pub async fn init_subfiles(&mut self, init_time: &CreateTime) -> MyResult<()> {
+    pub async fn init_subfiles(&mut self, init_time: usize) -> MyResult<()> {
         let static_path = self.path.as_path();
         let mut sub_files = get_res!(tokio::fs::read_dir(static_path).await);
         while let Some(sub_file) = get_res!(sub_files.next_entry().await) {
             let mut new_node =
-                Node::new_from_create(&sub_file.path(), init_time.clone(), self.rep_meta.clone());
+                Node::new_from_create(&sub_file.path(), init_time, self.rep_meta.clone());
             if new_node.is_dir {
                 new_node.init_subfiles(init_time).await?;
             }
@@ -85,42 +100,50 @@ impl Node {
     }
 
     #[async_recursion]
+    // get the child's write lock
     pub async fn modify(
         &self,
         path: &PathBuf,
         mut walk: Vec<String>,
         op: ModOption,
-    ) -> MyResult<()> {
-        let mut data = self.data.write().await;
+    ) -> MyResult<VectorTime> {
+        let mut self_data = self.data.write().await;
 
-        if walk.len() == 1 && op.create_time().is_some() {
+        if walk.len() == 1 && op.ty == ModType::Create {
             // create a new file in its parent dir
-            if data.children.contains_key(&walk[0]) {
+            if self_data.children.contains_key(&walk[0]) {
                 return Err("Modify Error : node already exists when creating".into());
             }
-            let create_time = op.create_time().unwrap();
-            let new_node = Node::new_from_create(path, create_time, self.rep_meta.clone());
-            data.children
+            let new_node = Node::new_from_create(path, op.time, self.rep_meta.clone());
+            // update the mod time when creating
+            self_data
+                .mod_time
+                .chkmax(&new_node.data.read().await.mod_time);
+            self_data
+                .children
                 .insert(new_node.file_name(), Arc::new(new_node));
         } else if walk.len() != 0 {
             // not in this level
             let name = walk.pop().unwrap();
-            if let Some(next_node) = data.children.get(&name) {
-                next_node.modify(path, walk, op).await?;
+            if let Some(next_node) = self_data.children.get(&name) {
+                let child_mod_time = next_node.modify(path, walk, op).await?;
+                // only update the mod time here
+                self_data.mod_time.chkmax(&child_mod_time);
             } else {
                 return Err("Modify Error : node not exists when modifying".into());
             }
         } else {
-            // modify file
+            // modify or delete file here
             if op.ty == ModType::Modify {
-                todo!()
+                self_data.modify(self.rep_meta.port, op.time);
             } else if op.ty == ModType::Delete {
-                todo!()
+                // the node with deletion notice would not have mod time
+                return Ok(self_data.delete(self.rep_meta.port, op.time));
             } else {
                 return Err("Modify Error : not supposed to be create here".into());
             }
         }
-        Ok(())
+        Ok(self_data.mod_time.clone())
     }
 }
 

@@ -1,16 +1,17 @@
 use std::collections::HashMap;
 
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct VectorTime {
-    pub times: HashMap<u16, usize>,
+    times: HashMap<u16, usize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct CreateTime {
-    pub id: u16,
-    pub time: usize,
+pub struct SingletonTime {
+    id: u16,
+    time: usize,
 }
 
-impl CreateTime {
+impl SingletonTime {
     pub fn new(id: u16, time: usize) -> Self {
         Self { id, time }
     }
@@ -25,10 +26,28 @@ impl Default for VectorTime {
 }
 
 impl VectorTime {
-    pub fn from_create_time(create_time: &CreateTime) -> Self {
+    pub fn from_singleton_time(create_time: &SingletonTime) -> Self {
         let mut times = HashMap::new();
         times.insert(create_time.id, create_time.time);
         Self { times }
+    }
+
+    pub fn update(&mut self, id: u16, time: usize) {
+        self.times.insert(id, time);
+    }
+
+    pub fn clear(&mut self) {
+        self.times.clear();
+    }
+
+    pub fn chkmax(&mut self, other: &Self) {
+        for (id, time) in &other.times {
+            if let Some(slef_time) = self.times.get(id) {
+                self.times.insert(*id, (*slef_time).max(*time));
+            } else {
+                self.times.insert(*id, *time);
+            }
+        }
     }
 
     pub fn inside(&self, other: &VectorTime) -> bool {
