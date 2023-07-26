@@ -6,6 +6,11 @@ use tokio::sync::RwLock;
 
 use crate::{get_res, replica::RepMeta, MyResult};
 
+use super::{
+    timestamp::{CreateTime, VectorTime},
+    ModOption, ModType,
+};
+
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum NodeStatus {
     Exist,
@@ -15,6 +20,9 @@ pub enum NodeStatus {
 
 pub struct NodeData {
     pub children: HashMap<String, Arc<Node>>,
+    pub mod_time: VectorTime,
+    pub sync_time: VectorTime,
+    pub create_time: CreateTime,
     pub status: NodeStatus,
 }
 
@@ -30,10 +38,17 @@ impl Node {
         self.path.file_name().unwrap().to_str().unwrap().to_string()
     }
 
-    // only new when creating or syncing a new file
-    pub fn new(path: &PathBuf, rep_meta: Arc<RepMeta>) -> Self {
+    // locally create a file
+    pub fn new_from_create(
+        path: &PathBuf,
+        create_time: CreateTime,
+        rep_meta: Arc<RepMeta>,
+    ) -> Self {
         let data = NodeData {
             children: HashMap::new(),
+            mod_time: VectorTime::from_create_time(&create_time),
+            sync_time: VectorTime::from_create_time(&create_time),
+            create_time,
             status: NodeStatus::Exist,
         };
         let is_dir = rep_meta.check_is_dir(path);
@@ -45,20 +60,65 @@ impl Node {
         }
     }
 
+    // sync from another replica, so create a file
+    pub fn new_from_sync(path: &PathBuf, rep_meta: Arc<RepMeta>) -> Self {
+        todo!()
+    }
+
     #[async_recursion]
-    pub async fn init_subfiles(&mut self) -> MyResult<()> {
+    pub async fn init_subfiles(&mut self, init_time: &CreateTime) -> MyResult<()> {
         let static_path = self.path.as_path();
         let mut sub_files = get_res!(tokio::fs::read_dir(static_path).await);
         while let Some(sub_file) = get_res!(sub_files.next_entry().await) {
-            let mut new_node = Node::new(&sub_file.path(), self.rep_meta.clone());
+            let mut new_node =
+                Node::new_from_create(&sub_file.path(), init_time.clone(), self.rep_meta.clone());
             if new_node.is_dir {
-                new_node.init_subfiles().await?;
+                new_node.init_subfiles(init_time).await?;
             }
             self.data
                 .write()
                 .await
                 .children
                 .insert(new_node.file_name(), Arc::new(new_node));
+        }
+        Ok(())
+    }
+
+    #[async_recursion]
+    pub async fn modify(
+        &self,
+        path: &PathBuf,
+        mut walk: Vec<String>,
+        op: ModOption,
+    ) -> MyResult<()> {
+        let mut data = self.data.write().await;
+
+        if walk.len() == 1 && op.create_time().is_some() {
+            // create a new file in its parent dir
+            if data.children.contains_key(&walk[0]) {
+                return Err("Modify Error : node already exists when creating".into());
+            }
+            let create_time = op.create_time().unwrap();
+            let new_node = Node::new_from_create(path, create_time, self.rep_meta.clone());
+            data.children
+                .insert(new_node.file_name(), Arc::new(new_node));
+        } else if walk.len() != 0 {
+            // not in this level
+            let name = walk.pop().unwrap();
+            if let Some(next_node) = data.children.get(&name) {
+                next_node.modify(path, walk, op).await?;
+            } else {
+                return Err("Modify Error : node not exists when modifying".into());
+            }
+        } else {
+            // modify file
+            if op.ty == ModType::Modify {
+                todo!()
+            } else if op.ty == ModType::Delete {
+                todo!()
+            } else {
+                return Err("Modify Error : not supposed to be create here".into());
+            }
         }
         Ok(())
     }

@@ -10,7 +10,10 @@ use tokio::sync::RwLock;
 
 use crate::{config::TMP_PATH, get_res, MyResult};
 
-use self::node::{Node, NodeStatus};
+use self::{
+    node::{Node, NodeStatus},
+    timestamp::CreateTime,
+};
 
 pub struct RepMeta {
     pub port: u16,
@@ -58,14 +61,34 @@ impl RepMeta {
             .unwrap_or(NodeStatus::Deleted)
     }
 
+    pub fn decompose(&self, path: &PathBuf) -> Vec<String> {
+        let mut tmp_path = path.clone();
+        let mut ret: Vec<String> = Vec::new();
+        while tmp_path.file_name().is_some() {
+            if tmp_path == self.prefix {
+                break;
+            }
+            ret.push(tmp_path.file_name().unwrap().to_str().unwrap().to_string());
+            tmp_path.pop();
+        }
+        ret
+    }
+
     pub async fn read_counter(&self) -> usize {
         self.counter.read().await.clone()
     }
 
-    pub async fn add_counter(&mut self) -> usize {
+    pub async fn add_counter(&self) -> usize {
         let mut now = self.counter.write().await;
         *now += 1;
         *now
+    }
+
+    pub async fn get_create_time(&self) -> CreateTime {
+        CreateTime {
+            id: self.port,
+            time: *self.counter.read().await,
+        }
     }
 }
 
@@ -74,15 +97,26 @@ pub struct Replica {
     pub file_trees: RwLock<HashMap<String, Arc<Node>>>,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum ModType {
     Modify,
-    Create,
+    Create(CreateTime),
     Delete,
 }
 
+#[derive(Copy, Clone)]
 pub struct ModOption {
     pub ty: ModType,
     pub is_dir: bool,
+}
+
+impl ModOption {
+    pub fn create_time(&self) -> Option<CreateTime> {
+        match self.ty {
+            ModType::Create(time) => Some(time),
+            _ => None,
+        }
+    }
 }
 
 impl Replica {
@@ -94,13 +128,20 @@ impl Replica {
     }
 
     pub async fn init_file_trees(&mut self) -> MyResult<()> {
+        // init the whole file tree, all inintial is in time 1
+        let init_time = CreateTime {
+            id: self.rep_meta.port,
+            time: self.rep_meta.add_counter().await,
+        };
+
         let mut tree_list = get_res!(tokio::fs::read_dir(&self.rep_meta.prefix).await);
         let mut file_trees = self.file_trees.write().await;
         while let Some(tree_root) = get_res!(tree_list.next_entry().await) {
             let path = tree_root.path();
-            let mut new_node = Node::new(&path, self.rep_meta.clone());
+            let create_time = self.rep_meta.get_create_time().await;
+            let mut new_node = Node::new_from_create(&path, create_time, self.rep_meta.clone());
             if new_node.is_dir {
-                new_node.init_subfiles().await?;
+                new_node.init_subfiles(&init_time).await?;
             }
             file_trees.insert(new_node.file_name(), Arc::new(new_node));
         }
@@ -108,7 +149,33 @@ impl Replica {
     }
 
     // modify && create && delete
-    pub fn modify(&mut self) -> MyResult<()> {
+    pub async fn modify(&self, path: &PathBuf, op: ModOption) -> MyResult<()> {
+        let mut walk = self.rep_meta.decompose(path);
+
+        if walk.len() == 0 {
+            // empty path
+            return Err("Modify Error : empty path".into());
+        } else if walk.len() == 1 && op.create_time().is_some() {
+            // detect creating a new file in the root dir
+            let mut file_trees = self.file_trees.write().await;
+            if file_trees.contains_key(&walk[0]) {
+                return Err("Modify Error : node already exists when creating".into());
+            }
+            let create_time = op.create_time().unwrap();
+            let new_node = Node::new_from_create(path, create_time, self.rep_meta.clone());
+            file_trees.insert(new_node.file_name(), Arc::new(new_node));
+        } else {
+            // other cases
+            let root_name = walk.pop().unwrap();
+            let file_trees = self.file_trees.read().await;
+            if let Some(root_node) = file_trees.get(&root_name) {
+                root_node.modify(path, walk, op).await?;
+            } else {
+                return Err("Modify Error : root node not found".into());
+            }
+        }
+
+        // update timestamp
         todo!()
     }
 
@@ -145,14 +212,4 @@ impl Replica {
             file_trees.get(*name).unwrap().tree(new_is_last).await;
         }
     }
-}
-
-pub fn decompose(path: &PathBuf) -> Vec<String> {
-    let mut tmp_path = path.clone();
-    let mut ret: Vec<String> = Vec::new();
-    while tmp_path.file_name().is_some() {
-        ret.push(tmp_path.file_name().unwrap().to_str().unwrap().to_string());
-        tmp_path.pop();
-    }
-    ret
 }
