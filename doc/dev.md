@@ -38,38 +38,45 @@
 - 接受来自中心服务器的同步请求`request_sync`
 - 接受来自其他replica的同步`fetch_delta`
 
-并发带来的同步问题
-
-- 需要结合tra的具体算法来考虑
-- 不同的文件之间同步没有冲突，直接并发执行即可
-- 当tra中心服务器向同一个replica发送同一个路径的多次同步请求的时候，需要注意顺序问题？还是不会有时间上的overlap？
-- 一个replaic向另外一个replica fetch delta的时候，需要考虑fetch到的delta是否是它想要的版本的delta？还是说这个问题由tra来保证？
-
-资源抢占问题
-
-- `request_sync`的请求并发执行，必定会有data race的问题
-- 本身server接受`request_sync`的顺序就不能保证
-- 文件抽象内的data race：不懂，看具体代码实现，应该直接加锁就好
-- 文件同时写如何的data race：需要使用锁来保证
-  - 全局资源，对于Hashmap加上RwLock, 对于文件（路径字符串）加上Mutex
-  - 或者使用channel发送给主线程，主线程一个一个处理，同一个文件的请求需要保证先后顺序（可能不需要锁）
-
-### Directories Watcher
-
-- 需要监听每一个文件夹的变化
 ### Timestamp
+
+通过watching的方式来更新
 
 - 利用 `inotify` 来定义一次文件修改/创建/删除的 atomic 操作
 - 对于每一个 atomic 操作， local 的 timestamp 都会 ++
 
-Or 
+通过scanning的方式来更新
 
 - ~~本地的修改全部算成一次，只有同步的时候会让 local time ++~~
+- ~~利用linux系统本地的file metadata来获取时间戳，或者采用哈希比较~~
 
-Freeze
+### 并发带来的同步问题
 
+3 Levels of Update
 
-- 在确认了一次 sync 的请求之后，应该将两端的 file 全部 freeze ，然后进行 sync
+- local file system，本地的用户可以直接修改的文件系统
+- modification time，本地的修改之后会更新的时间戳
+- synchronization time，在有了rpc同步请求之后会更新的时间戳
+
+Modification Time Update
+
+- 严格按照`inotify`的顺序来更新，前一个执行完才会执行后一个
+- 或者在sync之前的更新顺序都是无关紧要，在sync之前可以全部并发执行
+- 如果并发执行，那么需要对更新过程中会修改的节点上锁，使用`tokio::sync::RwLock`
+
+Synchronization Time Update
+
+- 同步和本地修改的冲突requirement
+  - 同步中的文件需要避免local file system的修改的发生
+  - 同步中的文件也需要避免本地的modification time的更新
+- 即同步的时候，需要保证local file system和modification的metadata都是处于frozen的状态
+  - 给需要同步的整个filetree的根目录加上进程锁，只有tra进程可以修改（本地的修改会更新每一级目录的modificatin time，所以需要从filetree的根目录来上锁）
+  - 上了process lock之后还需要等待`inotify`的处理队列处理完成（之前的修改），然后进入同步模式
+- sync操作的并发问题
+  - 一个filetree进入sync模式之后，其他的sync请求需要等待
+  - sync的时候应该同样对整个filetree加锁（不要被mod或者其他的sync修改）
+  - `sync A -> B`：A的filetree是read，B的filetree是write。使用`fcontl`来实现对文件的读写上锁
+  - 全部上锁完毕进入sync模式
 
 ### Tools
 
