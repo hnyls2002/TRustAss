@@ -1,4 +1,8 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, Weak},
+};
 
 use async_recursion::async_recursion;
 
@@ -18,11 +22,11 @@ pub enum NodeStatus {
 }
 
 pub struct NodeData {
-    pub children: HashMap<String, Arc<Node>>,
-    pub mod_time: VectorTime,
-    pub sync_time: VectorTime,
-    pub create_time: SingletonTime,
-    pub status: NodeStatus,
+    pub(crate) children: HashMap<String, Arc<Node>>,
+    pub(crate) mod_time: VectorTime,
+    pub(crate) sync_time: VectorTime,
+    pub(crate) create_time: SingletonTime,
+    pub(crate) status: NodeStatus,
 }
 
 impl NodeData {
@@ -54,6 +58,7 @@ pub struct Node {
     pub path: Box<PathBuf>,
     pub is_dir: bool,
     pub data: RwLock<NodeData>,
+    pub parent: Option<Weak<Node>>,
 }
 
 impl Node {
@@ -75,11 +80,17 @@ impl Node {
             rep_meta,
             is_dir: true,
             data: RwLock::new(data),
+            parent: None,
         }
     }
 
     // locally create a file
-    pub fn new_from_create(path: &PathBuf, time: usize, rep_meta: Arc<RepMeta>) -> Self {
+    pub fn new_from_create(
+        path: &PathBuf,
+        time: usize,
+        rep_meta: Arc<RepMeta>,
+        parent: Option<Weak<Node>>,
+    ) -> Self {
         let create_time = SingletonTime::new(rep_meta.port, time);
         let data = NodeData {
             children: HashMap::new(),
@@ -94,24 +105,31 @@ impl Node {
             path: Box::new(path.clone()),
             is_dir,
             data: RwLock::new(data),
+            parent,
         }
     }
 
     #[async_recursion]
-    pub async fn init_subfiles(&self, init_time: usize) -> MyResult<()> {
+    pub async fn init_subfiles(&self, init_time: usize, current: Weak<Node>) -> MyResult<()> {
         let static_path = self.path.as_path();
         let mut sub_files = get_res!(tokio::fs::read_dir(static_path).await);
         while let Some(sub_file) = get_res!(sub_files.next_entry().await) {
-            let new_node =
-                Node::new_from_create(&sub_file.path(), init_time, self.rep_meta.clone());
-            if new_node.is_dir {
-                new_node.init_subfiles(init_time).await?;
+            let child = Arc::new(Node::new_from_create(
+                &sub_file.path(),
+                init_time,
+                self.rep_meta.clone(),
+                Some(current.clone()),
+            ));
+            if child.is_dir {
+                child
+                    .init_subfiles(init_time, Arc::downgrade(&child))
+                    .await?;
             }
             self.data
                 .write()
                 .await
                 .children
-                .insert(new_node.file_name(), Arc::new(new_node));
+                .insert(child.file_name(), child);
         }
         Ok(())
     }
@@ -123,6 +141,7 @@ impl Node {
         path: &PathBuf,
         mut walk: Vec<String>,
         op: ModOption,
+        current: Weak<Node>,
     ) -> MyResult<VectorTime> {
         let mut self_data = self.data.write().await;
 
@@ -131,19 +150,18 @@ impl Node {
             if self_data.children.contains_key(&walk[0]) {
                 return Err("Modify Error : node already exists when creating".into());
             }
-            let new_node = Node::new_from_create(path, op.time, self.rep_meta.clone());
+            let child = Node::new_from_create(path, op.time, self.rep_meta.clone(), Some(current));
             // update the mod time when creating
-            self_data
-                .mod_time
-                .chkmax(&new_node.data.read().await.mod_time);
+            self_data.mod_time.chkmax(&child.data.read().await.mod_time);
             self_data
                 .children
-                .insert(new_node.file_name(), Arc::new(new_node));
+                .insert(child.file_name(), Arc::new(child));
         } else if walk.len() != 0 {
             // not in this level
             let name = walk.pop().unwrap();
-            if let Some(next_node) = self_data.children.get(&name) {
-                let child_mod_time = next_node.modify(path, walk, op).await?;
+            if let Some(child) = self_data.children.get(&name) {
+                let child_weak = Arc::downgrade(child);
+                let child_mod_time = child.modify(path, walk, op, child_weak).await?;
                 // only update the mod time here
                 self_data.mod_time.chkmax(&child_mod_time);
             } else {

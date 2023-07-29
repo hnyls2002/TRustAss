@@ -113,17 +113,27 @@ impl Replica {
     pub async fn init_file_trees(&mut self) -> MyResult<()> {
         // init the whole file tree, all inintial is in time 1
         let init_counter = self.rep_meta.add_counter().await;
-        get_res!(self.trees_collect.init_subfiles(init_counter).await);
+        let trees_collect_weak = Arc::downgrade(&self.trees_collect);
+        get_res!(
+            self.trees_collect
+                .init_subfiles(init_counter, trees_collect_weak)
+                .await
+        );
         Ok(())
     }
 
     // modify && create && delete
     pub async fn modify(&self, path: &PathBuf, op: ModOption) -> MyResult<()> {
         let walk = self.rep_meta.decompose(path);
+        let tress_collect_weak = Arc::downgrade(&self.trees_collect);
 
         // do not need to update the modify time
         // but use get_res! to check the result
-        get_res!(self.trees_collect.modify(path, walk, op).await);
+        get_res!(
+            self.trees_collect
+                .modify(path, walk, op, tress_collect_weak)
+                .await
+        );
 
         Ok(())
     }
