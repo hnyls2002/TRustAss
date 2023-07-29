@@ -1,12 +1,12 @@
 use std::{collections::HashMap, ffi::OsStr, sync::Arc};
 
 use async_recursion::async_recursion;
-use inotify::{Inotify, WatchMask};
+use inotify::{Event, EventMask, Inotify, WatchMask};
 use lazy_static::lazy_static;
 
-use crate::{config::CHANNEL_BUFFER_SIZE, debug, warn};
+use crate::{error, info};
 
-use super::{node::Node, Replica};
+use super::node::Node;
 
 lazy_static! {
     static ref WATCH_EVENTS: WatchMask = WatchMask::CREATE
@@ -23,37 +23,40 @@ pub struct FileWatcher {
 }
 
 impl FileWatcher {
-    pub fn add_file(&mut self, node: &Arc<Node>) {
-        let fd = self
-            .inotify
-            .watches()
-            .add(node.path.as_path(), *WATCH_EVENTS)
-            .unwrap()
-            .get_watch_descriptor_id();
-        self.fd_map.insert(fd, node.clone());
-    }
-
-    pub async fn new_from_replica(replica: &Replica) -> Self {
-        let mut fw = Self {
+    pub fn new() -> Self {
+        Self {
             inotify: Inotify::init().expect("Failed to initialize inotify"),
             fd_map: HashMap::new(),
             cnt: 0,
-        };
-        Self::bind_watches(&mut fw, &replica.trees_collect).await;
-        fw
-    }
-
-    #[async_recursion]
-    pub async fn bind_watches(fw: &mut FileWatcher, node: &Arc<Node>) {
-        warn!("add_watches: {:?}", node.path);
-        fw.add_file(node);
-        let data = node.data.read().await;
-        for (_, child) in data.children.iter() {
-            Self::bind_watches(fw, &child).await;
         }
     }
 
-    pub fn display(&mut self, event: inotify::Event<&OsStr>) {
+    pub fn add_file(&mut self, node: &Arc<Node>) {
+        // watching directory is enough
+        if node.is_dir {
+            info!("add_watches: {:?}", node.path);
+            let fd = self
+                .inotify
+                .watches()
+                .add(node.path.as_path(), *WATCH_EVENTS)
+                .unwrap()
+                .get_watch_descriptor_id();
+            self.fd_map.insert(fd, node.clone());
+        }
+    }
+
+    #[async_recursion]
+    pub async fn bind_watches_recursive(&mut self, node: &Arc<Node>) {
+        self.add_file(node);
+        let data = node.data.read().await;
+        for (_, child) in data.children.iter() {
+            self.bind_watches_recursive(child).await;
+        }
+    }
+}
+
+impl FileWatcher {
+    pub fn display(&mut self, event: &Event<&OsStr>) {
         self.cnt = self.cnt + 1;
         let fd = event.wd.get_watch_descriptor_id();
         let node = self.fd_map.get(&fd).unwrap();
@@ -64,34 +67,29 @@ impl FileWatcher {
         println!("===============================");
     }
 
-    pub fn work(&mut self) -> ! {
-        let mut buffer = [0; CHANNEL_BUFFER_SIZE];
-        loop {
-            let events = self.inotify.read_events_blocking(buffer.as_mut()).unwrap();
-            for event in events {
-                self.display(event);
-            }
-        }
-    }
-}
+    pub async fn handle_event(&mut self, event: &Event<&OsStr>) {
+        let fd = event.wd.get_watch_descriptor_id();
+        let node = self.fd_map.get(&fd).unwrap().clone();
+        let time = node.rep_meta.add_counter().await;
+        let mask = event.mask;
+        let name = event
+            .name
+            .expect("Inotify event name is None")
+            .to_string_lossy()
+            .to_string();
+        if mask.contains(EventMask::CREATE) {
+            node.handle_create(&name, time, Arc::downgrade(&node)).await;
 
-pub fn file_watch_test(dir_path: &String) {
-    let mut inotify = Inotify::init().expect("Failed to initialize inotify");
-    let path = std::path::Path::new(dir_path);
-    std::fs::create_dir_all(path).unwrap();
-
-    debug!("All events can be watched {:?}", WatchMask::ALL_EVENTS);
-
-    inotify.watches().add(path, WatchMask::ALL_EVENTS).unwrap();
-
-    let mut buffer = [0; 1024];
-
-    loop {
-        debug!("Waiting for events");
-        let events = inotify.read_events_blocking(buffer.as_mut()).unwrap();
-
-        for event in events {
-            println!("{:?}", event);
+            // add watch for the new file
+            let child = node.data.read().await.children.get(&name).unwrap().clone();
+            self.add_file(&child);
+        } else if mask.contains(EventMask::DELETE) {
+            node.handle_delete(&name, time).await;
+        } else if mask.contains(EventMask::MODIFY) {
+            node.handle_modify(time).await;
+        } else {
+            error!("MOVE event handling not implemented");
+            // TODO: add a panic here
         }
     }
 }

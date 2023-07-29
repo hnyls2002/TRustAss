@@ -228,3 +228,43 @@ impl Node {
         }
     }
 }
+
+// direct handle on the node (do not need to recursively get the node)
+impl Node {
+    pub async fn pushup_mtime(&self, mod_time: &VectorTime) {
+        // update the mod time
+        self.data.write().await.mod_time.chkmax(&mod_time);
+        let mut ancestor = self.parent.clone();
+        while ancestor.is_some() {
+            let upgraded = ancestor.unwrap().upgrade().unwrap();
+            upgraded.data.write().await.mod_time.chkmax(&mod_time);
+            ancestor = upgraded.parent.clone();
+        }
+    }
+
+    pub async fn handle_create(&self, name: &String, time: usize, parent: Weak<Node>) {
+        let child_path = self.path.join(name);
+        let child = Node::new_from_create(&child_path, time, self.rep_meta.clone(), Some(parent));
+        let mod_time = child.data.read().await.mod_time.clone();
+        self.data
+            .write()
+            .await
+            .children
+            .insert(name.clone(), Arc::new(child));
+
+        self.pushup_mtime(&mod_time).await;
+    }
+
+    pub async fn handle_delete(&self, name: &String, time: usize) {
+        let child = self.data.read().await.children.get(name).unwrap().clone();
+        let mod_time = child.data.write().await.delete(self.rep_meta.port, time);
+
+        self.pushup_mtime(&mod_time).await;
+    }
+
+    pub async fn handle_modify(&self, time: usize) {
+        self.data.write().await.modify(self.rep_meta.port, time);
+        let mod_time = self.data.read().await.mod_time.clone();
+        self.pushup_mtime(&mod_time).await;
+    }
+}

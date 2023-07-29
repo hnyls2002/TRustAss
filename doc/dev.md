@@ -9,13 +9,35 @@
   - 使用RPC完成fetch patch的操作
 - [ ] 支持不同的`reptra`直接使用命令行来同步
 
+### Supported Local Modification
+
+基本假设：在文件创建到相应的`inotify::wathcer`创建之前，创建的文件或者文件夹里面的内容不会被修改。
+
+即代码足够快，文件修改足够慢或间隔足够长。
+
+- [x] CREATE
+- [x] DELETE
+- [x] MODIFY
+- [ ] MOVED_TO
+- [ ] MOVED_FROM
+
+Possible Solution
+
+- 文件被移动了那么不同副本的同步语义上肯定就是被删掉/创建了，因为不同副本的对应关系是按照path来对应的。
+- MOVED_FROM直接按照DELETE来处理，需要递归删除所有的node
+- MOVED_TO当作创建
+
+Other Problems
+
+- [ ] folder从别的地方移动过来，可能直接整个文件夹移动过来（也就是没有`-r`的`mv`，只是将directory的inode移动，实际上就是所有sub files全部同时移动），没有办法进行监测，所以需要主动再次扫描文件夹
+- [ ] folder的删除如果整个移动走了，可能需要把inotify里面的watch给unregister掉
+
 ### Reptra Emulation
 
 - 采用不同的线程
 - 本地随即分配可用端口，然后将端口发送给`centra`，`centra`用不同的端口来区分不同的`reptra`
 
 ###  Rsync Algorithm
-
 - Rust 的 `fast_rsync` 库
 - 一次RPC
   - A : send signature

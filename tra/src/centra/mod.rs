@@ -2,6 +2,7 @@ pub mod greeter;
 pub mod port_collect;
 
 pub mod controller {
+    #![allow(non_snake_case)]
     include!("../protos/controller.rs");
 }
 

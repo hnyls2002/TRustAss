@@ -6,11 +6,18 @@ pub mod timestamp;
 
 use std::{path::PathBuf, sync::Arc};
 
+use inotify::EventMask;
 use tokio::sync::RwLock;
 
-use crate::{config::TMP_PATH, get_res, MyResult};
+use crate::{
+    config::{CHANNEL_BUFFER_SIZE, TMP_PATH},
+    get_res, MyResult,
+};
 
-use self::node::{Node, NodeStatus};
+use self::{
+    file_watcher::FileWatcher,
+    node::{Node, NodeStatus},
+};
 
 pub struct RepMeta {
     pub port: u16,
@@ -85,6 +92,7 @@ impl RepMeta {
 pub struct Replica {
     pub rep_meta: Arc<RepMeta>,
     pub trees_collect: Arc<Node>,
+    pub file_watcher: FileWatcher,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -102,11 +110,17 @@ pub struct ModOption {
 }
 
 impl Replica {
+    pub async fn tree(&self) {
+        self.trees_collect.tree(Vec::new()).await;
+    }
+
     pub fn new(port: u16) -> Self {
         let rep_meta = Arc::new(RepMeta::new(port));
+        let trees_collect = Arc::new(Node::new_trees_collect(rep_meta.clone()));
         Self {
-            rep_meta: rep_meta.clone(),
-            trees_collect: Arc::new(Node::new_trees_collect(rep_meta)),
+            rep_meta,
+            file_watcher: FileWatcher::new(),
+            trees_collect,
         }
     }
 
@@ -119,6 +133,9 @@ impl Replica {
                 .init_subfiles(init_counter, trees_collect_weak)
                 .await
         );
+        self.file_watcher
+            .bind_watches_recursive(&self.trees_collect)
+            .await;
         Ok(())
     }
 
@@ -151,29 +168,23 @@ impl Replica {
     }
 }
 
+// do the watching stuff
 impl Replica {
-    pub async fn tree(&self) {
-        let mut tmp_list = Vec::new();
-
-        let trees_data = self.trees_collect.data.read().await;
-
-        let mut it = trees_data.children.iter();
-
-        while let Some((name, node)) = it.next() {
-            tmp_list.push((node.is_dir, name));
-        }
-
-        tmp_list.sort_by(|a, b| a.cmp(b));
-
-        for (_, name) in &tmp_list {
-            let now_flag = *name == tmp_list.last().unwrap().1;
-            let new_is_last = vec![now_flag];
-            trees_data
-                .children
-                .get(*name)
-                .unwrap()
-                .tree(new_is_last)
-                .await;
+    pub async fn watching(&mut self) -> ! {
+        let mut buffer = [0; CHANNEL_BUFFER_SIZE];
+        loop {
+            self.tree().await;
+            let events = self
+                .file_watcher
+                .inotify
+                .read_events_blocking(buffer.as_mut())
+                .unwrap();
+            for event in events {
+                if event.mask != EventMask::IGNORED {
+                    self.file_watcher.display(&event);
+                    self.file_watcher.handle_event(&event).await;
+                }
+            }
         }
     }
 }
