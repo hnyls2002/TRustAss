@@ -61,6 +61,23 @@ impl Node {
         self.path.file_name().unwrap().to_str().unwrap().to_string()
     }
 
+    // the replica's bedrock
+    pub fn new_trees_collect(rep_meta: Arc<RepMeta>) -> Self {
+        let data = NodeData {
+            children: HashMap::new(),
+            mod_time: VectorTime::default(),
+            sync_time: VectorTime::default(),
+            create_time: SingletonTime::default(),
+            status: NodeStatus::Exist,
+        };
+        Self {
+            path: Box::new(rep_meta.prefix.clone()),
+            rep_meta,
+            is_dir: true,
+            data: RwLock::new(data),
+        }
+    }
+
     // locally create a file
     pub fn new_from_create(path: &PathBuf, time: usize, rep_meta: Arc<RepMeta>) -> Self {
         let create_time = SingletonTime::new(rep_meta.port, time);
@@ -81,11 +98,11 @@ impl Node {
     }
 
     #[async_recursion]
-    pub async fn init_subfiles(&mut self, init_time: usize) -> MyResult<()> {
+    pub async fn init_subfiles(&self, init_time: usize) -> MyResult<()> {
         let static_path = self.path.as_path();
         let mut sub_files = get_res!(tokio::fs::read_dir(static_path).await);
         while let Some(sub_file) = get_res!(sub_files.next_entry().await) {
-            let mut new_node =
+            let new_node =
                 Node::new_from_create(&sub_file.path(), init_time, self.rep_meta.clone());
             if new_node.is_dir {
                 new_node.init_subfiles(init_time).await?;

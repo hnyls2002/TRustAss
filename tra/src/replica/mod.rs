@@ -4,7 +4,7 @@ pub mod file_watcher;
 pub mod node;
 pub mod timestamp;
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use tokio::sync::RwLock;
 
@@ -84,7 +84,7 @@ impl RepMeta {
 
 pub struct Replica {
     pub rep_meta: Arc<RepMeta>,
-    pub file_trees: RwLock<HashMap<String, Arc<Node>>>,
+    pub trees_collect: Arc<Node>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -103,57 +103,29 @@ pub struct ModOption {
 
 impl Replica {
     pub fn new(port: u16) -> Self {
+        let rep_meta = Arc::new(RepMeta::new(port));
         Self {
-            rep_meta: Arc::new(RepMeta::new(port)),
-            file_trees: RwLock::new(HashMap::new()),
+            rep_meta: rep_meta.clone(),
+            trees_collect: Arc::new(Node::new_trees_collect(rep_meta)),
         }
     }
 
     pub async fn init_file_trees(&mut self) -> MyResult<()> {
         // init the whole file tree, all inintial is in time 1
         let init_counter = self.rep_meta.add_counter().await;
-
-        let mut tree_list = get_res!(tokio::fs::read_dir(&self.rep_meta.prefix).await);
-        let mut file_trees = self.file_trees.write().await;
-        while let Some(tree_root) = get_res!(tree_list.next_entry().await) {
-            let path = tree_root.path();
-            let mut new_node = Node::new_from_create(&path, init_counter, self.rep_meta.clone());
-            if new_node.is_dir {
-                new_node.init_subfiles(init_counter).await?;
-            }
-            file_trees.insert(new_node.file_name(), Arc::new(new_node));
-        }
+        get_res!(self.trees_collect.init_subfiles(init_counter).await);
         Ok(())
     }
 
     // modify && create && delete
     pub async fn modify(&self, path: &PathBuf, op: ModOption) -> MyResult<()> {
-        let mut walk = self.rep_meta.decompose(path);
+        let walk = self.rep_meta.decompose(path);
 
-        if walk.len() == 0 {
-            // empty path
-            return Err("Modify Error : empty path".into());
-        } else if walk.len() == 1 && op.ty == ModType::Create {
-            // detect creating a new file in the root dir
-            let mut file_trees = self.file_trees.write().await;
-            if file_trees.contains_key(&walk[0]) {
-                return Err("Modify Error : node already exists when creating".into());
-            }
-            let new_node = Node::new_from_create(path, op.time, self.rep_meta.clone());
-            file_trees.insert(new_node.file_name(), Arc::new(new_node));
-        } else {
-            // other cases
-            let root_name = walk.pop().unwrap();
-            let file_trees = self.file_trees.read().await;
-            if let Some(root_node) = file_trees.get(&root_name) {
-                root_node.modify(path, walk, op).await?;
-            } else {
-                return Err("Modify Error : root node not found".into());
-            }
-        }
+        // do not need to update the modify time
+        // but use get_res! to check the result
+        get_res!(self.trees_collect.modify(path, walk, op).await);
 
-        // update timestamp
-        todo!()
+        Ok(())
     }
 
     pub fn sync_dir(&mut self) -> MyResult<()> {
@@ -173,9 +145,9 @@ impl Replica {
     pub async fn tree(&self) {
         let mut tmp_list = Vec::new();
 
-        let file_trees = self.file_trees.read().await;
+        let trees_data = self.trees_collect.data.read().await;
 
-        let mut it = file_trees.iter();
+        let mut it = trees_data.children.iter();
 
         while let Some((name, node)) = it.next() {
             tmp_list.push((node.is_dir, name));
@@ -186,7 +158,12 @@ impl Replica {
         for (_, name) in &tmp_list {
             let now_flag = *name == tmp_list.last().unwrap().1;
             let new_is_last = vec![now_flag];
-            file_trees.get(*name).unwrap().tree(new_is_last).await;
+            trees_data
+                .children
+                .get(*name)
+                .unwrap()
+                .tree(new_is_last)
+                .await;
         }
     }
 }

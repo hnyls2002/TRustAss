@@ -5,7 +5,7 @@ pub struct VectorTime {
     times: HashMap<u16, usize>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct SingletonTime {
     id: u16,
     time: usize,
