@@ -4,14 +4,14 @@ pub mod file_watcher;
 pub mod node;
 pub mod timestamp;
 
-use std::{path::PathBuf, sync::Arc};
+use std::{ffi::OsStr, path::PathBuf, sync::Arc};
 
-use inotify::EventMask;
+use inotify::{Event, EventMask};
 use tokio::sync::RwLock;
 
 use crate::{
     config::{CHANNEL_BUFFER_SIZE, TMP_PATH},
-    get_res, MyResult,
+    unwrap_res, MyResult,
 };
 
 use self::{
@@ -97,15 +97,36 @@ pub struct Replica {
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum ModType {
-    Modify,
     Create,
     Delete,
+    Modify,
+    MovedTo,
+    MovedFrom,
 }
 
-#[derive(Copy, Clone)]
+impl ModType {
+    pub fn from_mask(mask: &EventMask) -> Self {
+        if mask.contains(EventMask::CREATE) {
+            return ModType::Create;
+        } else if mask.contains(EventMask::DELETE) {
+            return ModType::Delete;
+        } else if mask.contains(EventMask::MODIFY) {
+            return ModType::Modify;
+        } else if mask.contains(EventMask::MOVED_TO) {
+            return ModType::MovedTo;
+        } else if mask.contains(EventMask::MOVED_FROM) {
+            return ModType::MovedFrom;
+        } else {
+            panic!("Unknown event mask: {:?}", mask);
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct ModOption {
     pub ty: ModType,
     pub time: usize,
+    pub name: String,
     pub is_dir: bool,
 }
 
@@ -117,9 +138,11 @@ impl Replica {
     pub fn new(port: u16) -> Self {
         let rep_meta = Arc::new(RepMeta::new(port));
         let trees_collect = Arc::new(Node::new_trees_collect(rep_meta.clone()));
+        let mut file_watcher = FileWatcher::new();
+        file_watcher.add_watch(&rep_meta.prefix);
         Self {
             rep_meta,
-            file_watcher: FileWatcher::new(),
+            file_watcher,
             trees_collect,
         }
     }
@@ -128,30 +151,11 @@ impl Replica {
         // init the whole file tree, all inintial is in time 1
         let init_counter = self.rep_meta.add_counter().await;
         let trees_collect_weak = Arc::downgrade(&self.trees_collect);
-        get_res!(
-            self.trees_collect
-                .scan_all(init_counter, trees_collect_weak)
-                .await
-        );
-        self.file_watcher
-            .bind_watches_recursive(&self.trees_collect)
+        let res = self
+            .trees_collect
+            .scan_all(init_counter, trees_collect_weak, &mut self.file_watcher)
             .await;
-        Ok(())
-    }
-
-    // modify && create && delete
-    pub async fn modify(&self, path: &PathBuf, op: ModOption) -> MyResult<()> {
-        let walk = self.rep_meta.decompose(path);
-        let tress_collect_weak = Arc::downgrade(&self.trees_collect);
-
-        // do not need to update the modify time
-        // but use get_res! to check the result
-        get_res!(
-            self.trees_collect
-                .modify(path, walk, op, tress_collect_weak)
-                .await
-        );
-
+        unwrap_res!(res);
         Ok(())
     }
 
@@ -168,12 +172,11 @@ impl Replica {
     }
 }
 
-// do the watching stuff
+// handling the watching stuff
 impl Replica {
     pub async fn watching(&mut self) -> ! {
         let mut buffer = [0; CHANNEL_BUFFER_SIZE];
         loop {
-            self.tree().await;
             let events = self
                 .file_watcher
                 .inotify
@@ -181,10 +184,41 @@ impl Replica {
                 .unwrap();
             for event in events {
                 if event.mask != EventMask::IGNORED {
-                    self.file_watcher.display(&event);
-                    self.file_watcher.handle_event(&event).await;
+                    self.file_watcher.display_event(&event);
+                    self.handle_event(&event).await.expect("handle event error");
                 }
             }
+            self.tree().await;
         }
+    }
+
+    pub async fn handle_event(&mut self, event: &Event<&OsStr>) -> MyResult<()> {
+        let wd_id = event.wd.get_watch_descriptor_id();
+        let path = self
+            .file_watcher
+            .fd_map
+            .get(&wd_id)
+            .expect("should have this file watched")
+            .clone();
+        let walk = self.rep_meta.decompose(&path);
+        let name = event
+            .name
+            .expect("Inotify event name is None")
+            .to_string_lossy()
+            .to_string();
+        let time = self.rep_meta.add_counter().await;
+        let op = ModOption {
+            ty: ModType::from_mask(&event.mask),
+            time,
+            name,
+            is_dir: event.mask.contains(EventMask::ISDIR),
+        };
+        let current = Arc::downgrade(&self.trees_collect);
+        let res = self
+            .trees_collect
+            .handle_event(&path, walk, op, current, &mut self.file_watcher)
+            .await;
+        unwrap_res!(res);
+        Ok(())
     }
 }

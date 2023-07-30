@@ -8,9 +8,10 @@ use async_recursion::async_recursion;
 
 use tokio::sync::RwLock;
 
-use crate::{get_res, replica::RepMeta, MyResult};
+use crate::{error, replica::RepMeta, unwrap_res, MyResult};
 
 use super::{
+    file_watcher::FileWatcher,
     timestamp::{SingletonTime, VectorTime},
     ModOption, ModType,
 };
@@ -110,18 +111,26 @@ impl Node {
     }
 
     #[async_recursion]
-    pub async fn scan_all(&self, init_time: usize, current: Weak<Node>) -> MyResult<()> {
+    pub async fn scan_all(
+        &self,
+        init_time: usize,
+        current: Weak<Node>,
+        file_watcher: &mut FileWatcher,
+    ) -> MyResult<()> {
         let static_path = self.path.as_path();
-        let mut sub_files = get_res!(tokio::fs::read_dir(static_path).await);
-        while let Some(sub_file) = get_res!(sub_files.next_entry().await) {
+        let mut sub_files = unwrap_res!(tokio::fs::read_dir(static_path).await);
+        while let Some(sub_file) = unwrap_res!(sub_files.next_entry().await) {
             let child = Arc::new(Node::new_from_create(
                 &sub_file.path(),
                 init_time,
                 self.rep_meta.clone(),
                 Some(current.clone()),
             ));
+            file_watcher.add_watch(&child.path);
             if child.is_dir {
-                child.scan_all(init_time, Arc::downgrade(&child)).await?;
+                child
+                    .scan_all(init_time, Arc::downgrade(&child), file_watcher)
+                    .await?;
             }
             self.data
                 .write()
@@ -132,51 +141,46 @@ impl Node {
         Ok(())
     }
 
-    #[async_recursion]
     // get the child's write lock
-    pub async fn modify(
+    #[async_recursion]
+    pub async fn handle_event(
         &self,
         path: &PathBuf,
         mut walk: Vec<String>,
         op: ModOption,
-        current: Weak<Node>,
+        cur_weak: Weak<Node>,
+        file_wather: &mut FileWatcher,
     ) -> MyResult<VectorTime> {
-        let mut self_data = self.data.write().await;
-
-        if walk.len() == 1 && op.ty == ModType::Create {
-            // create a new file in its parent dir
-            if self_data.children.contains_key(&walk[0]) {
-                return Err("Modify Error : node already exists when creating".into());
-            }
-            let child = Node::new_from_create(path, op.time, self.rep_meta.clone(), Some(current));
-            // update the mod time when creating
-            self_data.mod_time.chkmax(&child.data.read().await.mod_time);
-            self_data
+        // not the target node yet
+        if !walk.is_empty() {
+            let mut cur_data = self.data.write().await;
+            let child_name = walk.pop().unwrap();
+            let child = cur_data
                 .children
-                .insert(child.file_name(), Arc::new(child));
-        } else if walk.len() != 0 {
-            // not in this level
-            let name = walk.pop().unwrap();
-            if let Some(child) = self_data.children.get(&name) {
-                let child_weak = Arc::downgrade(child);
-                let child_mod_time = child.modify(path, walk, op, child_weak).await?;
-                // only update the mod time here
-                self_data.mod_time.chkmax(&child_mod_time);
-            } else {
-                return Err("Modify Error : node not exists when modifying".into());
-            }
+                .get(&child_name)
+                .ok_or("Event Handling Error : Node not found along the path")?;
+            let child_weak = Arc::downgrade(child);
+            let new_mod_time = child
+                .handle_event(path, walk, op, child_weak, file_wather)
+                .await?;
+            cur_data.mod_time.chkmax(&new_mod_time);
+            Ok(new_mod_time)
         } else {
-            // modify or delete file here
-            if op.ty == ModType::Modify {
-                self_data.modify(self.rep_meta.port, op.time);
-            } else if op.ty == ModType::Delete {
-                // the node with deletion notice would not have mod time
-                return Ok(self_data.delete(self.rep_meta.port, op.time));
-            } else {
-                return Err("Modify Error : not supposed to be create here".into());
+            error!("type : {:?}, name : {}", op.ty, op.name);
+            match op.ty {
+                ModType::Create => Ok(self.handle_create(&op.name, op.time, cur_weak).await),
+                ModType::Delete => Ok(self.handle_delete(&op.name, op.time).await),
+                ModType::Modify => Ok(self.handle_modify(op.time).await),
+                ModType::MovedTo => {
+                    self.handle_moved_to(&op.name, op.time, cur_weak).await;
+                    todo!();
+                }
+                ModType::MovedFrom => {
+                    self.handle_moved_from(&op.name, op.time).await;
+                    todo!();
+                }
             }
         }
-        Ok(self_data.mod_time.clone())
     }
 }
 
@@ -240,35 +244,46 @@ impl Node {
         }
     }
 
-    pub async fn handle_create(&self, name: &String, time: usize, parent: Weak<Node>) {
+    pub async fn handle_create(
+        &self,
+        name: &String,
+        time: usize,
+        parent: Weak<Node>,
+    ) -> VectorTime {
         let child_path = self.path.join(name);
         let child = Node::new_from_create(&child_path, time, self.rep_meta.clone(), Some(parent));
         let mod_time = child.data.read().await.mod_time.clone();
-        self.data
+        let mut parent_data = self.data.write().await;
+        parent_data.children.insert(name.clone(), Arc::new(child));
+        parent_data.mod_time.chkmax(&mod_time);
+        mod_time
+    }
+
+    pub async fn handle_delete(&self, name: &String, time: usize) -> VectorTime {
+        let mut cur_data = self.data.write().await;
+        let to_be_deleted = cur_data.children.get(name).unwrap().clone();
+        let mod_time = to_be_deleted
+            .data
             .write()
             .await
-            .children
-            .insert(name.clone(), Arc::new(child));
-
-        self.pushup_mtime(&mod_time).await;
+            .delete(self.rep_meta.port, time);
+        cur_data.mod_time.chkmax(&mod_time);
+        mod_time
     }
 
-    pub async fn handle_delete(&self, name: &String, time: usize) {
-        let child = self.data.read().await.children.get(name).unwrap().clone();
-        let mod_time = child.data.write().await.delete(self.rep_meta.port, time);
-
-        self.pushup_mtime(&mod_time).await;
-    }
-
-    pub async fn handle_modify(&self, time: usize) {
-        self.data.write().await.modify(self.rep_meta.port, time);
-        let mod_time = self.data.read().await.mod_time.clone();
-        self.pushup_mtime(&mod_time).await;
+    pub async fn handle_modify(&self, time: usize) -> VectorTime {
+        let mut cur_data = self.data.write().await;
+        cur_data.modify(self.rep_meta.port, time);
+        cur_data.mod_time.clone()
     }
 
     pub async fn handle_moved_to(&self, name: &String, time: usize, parent: Weak<Node>) {
         self.handle_create(name, time, parent).await;
-        let child = self.data.read().await.children.get(name).unwrap().clone();
-        child.scan_all(time, Arc::downgrade(&child)).await.unwrap();
+        // let child = self.data.read().await.children.get(name).unwrap().clone();
+        // child.scan_all(time, Arc::downgrade(&child)).await.unwrap();
+    }
+
+    pub async fn handle_moved_from(&self, name: &String, time: usize) {
+        todo!()
     }
 }

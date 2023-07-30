@@ -16,7 +16,7 @@ pub async fn ctrl_c_singal() {
 pub type MyResult<T> = Result<T, String>;
 
 #[macro_export]
-macro_rules! get_res {
+macro_rules! unwrap_res {
     ($expr:expr) => {
         match $expr {
             Ok(val) => val,

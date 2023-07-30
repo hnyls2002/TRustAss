@@ -13,6 +13,7 @@ async fn demo() {
     rsync::demo();
     let mut rep = replica::Replica::new(TRA_PORT);
     rep.init_file_trees().await.expect("Failed to init replica");
+    rep.tree().await;
     rep.watching().await;
 }
 
