@@ -137,9 +137,8 @@ impl Replica {
 
     pub fn new(port: u16) -> Self {
         let rep_meta = Arc::new(RepMeta::new(port));
-        let trees_collect = Arc::new(Node::new_trees_collect(rep_meta.clone()));
         let mut file_watcher = FileWatcher::new();
-        file_watcher.add_watch(&rep_meta.prefix);
+        let trees_collect = Arc::new(Node::new_trees_collect(rep_meta.clone(), &mut file_watcher));
         Self {
             rep_meta,
             file_watcher,
@@ -185,7 +184,7 @@ impl Replica {
             for event in events {
                 if event.mask != EventMask::IGNORED {
                     self.file_watcher.display_event(&event);
-                    self.handle_event(&event).await.expect("handle event error");
+                    self.handle_event(&event).await.unwrap();
                 }
             }
             self.tree().await;
@@ -213,10 +212,10 @@ impl Replica {
             name,
             is_dir: event.mask.contains(EventMask::ISDIR),
         };
-        let current = Arc::downgrade(&self.trees_collect);
+        let cur_weak = Arc::downgrade(&self.trees_collect);
         let res = self
             .trees_collect
-            .handle_event(&path, walk, op, current, &mut self.file_watcher)
+            .handle_event(&path, walk, op, cur_weak, &mut self.file_watcher)
             .await;
         unwrap_res!(res);
         Ok(())

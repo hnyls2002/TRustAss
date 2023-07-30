@@ -8,7 +8,7 @@ pub mod peer {
 use crate::{
     centra::{GreeterClient, HelloRequest},
     config::TRA_STATIC_ADDR,
-    debug, unwrap_res, MyResult,
+    debug, MyResult,
 };
 use booter::boot_server;
 use std::thread;
@@ -77,7 +77,7 @@ pub fn start_reptra(rep_num: usize) -> MyResult<()> {
     let mut rep_threads = Vec::new();
     for _ in 0..rep_num {
         rep_threads.push(thread::spawn(|| -> MyResult<()> {
-            let rt = unwrap_res!(Runtime::new());
+            let rt = Runtime::new().expect("failed to create runtime");
 
             // use this to enter the runtime context, so that we can spawn tasks
             // that is, calling `boot_server()` here would not cause panic

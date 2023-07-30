@@ -8,7 +8,7 @@ use async_recursion::async_recursion;
 
 use tokio::sync::RwLock;
 
-use crate::{error, replica::RepMeta, unwrap_res, MyResult};
+use crate::{debug, error, replica::RepMeta, unwrap_res, MyResult};
 
 use super::{
     file_watcher::FileWatcher,
@@ -38,7 +38,7 @@ impl NodeData {
 
     pub fn delete(&mut self, id: u16, time: usize) -> VectorTime {
         // the file system cannot delete a directory that is not empty
-        assert!(self.children.is_empty());
+        // TODO : assert!(self.children.is_empty());
 
         // a file once deleted, the mod time is useless
         // however, its ancestor may still need it
@@ -68,7 +68,7 @@ impl Node {
     }
 
     // the replica's bedrock
-    pub fn new_trees_collect(rep_meta: Arc<RepMeta>) -> Self {
+    pub fn new_trees_collect(rep_meta: Arc<RepMeta>, file_watcher: &mut FileWatcher) -> Self {
         let data = NodeData {
             children: HashMap::new(),
             mod_time: VectorTime::default(),
@@ -76,8 +76,10 @@ impl Node {
             create_time: SingletonTime::default(),
             status: NodeStatus::Exist,
         };
+        let path = rep_meta.prefix.clone();
+        file_watcher.add_watch(&path);
         Self {
-            path: Box::new(rep_meta.prefix.clone()),
+            path: Box::new(path),
             rep_meta,
             is_dir: true,
             data: RwLock::new(data),
@@ -91,6 +93,7 @@ impl Node {
         time: usize,
         rep_meta: Arc<RepMeta>,
         parent: Option<Weak<Node>>,
+        file_watcher: &mut FileWatcher,
     ) -> Self {
         let create_time = SingletonTime::new(rep_meta.port, time);
         let data = NodeData {
@@ -101,6 +104,7 @@ impl Node {
             status: NodeStatus::Exist,
         };
         let is_dir = rep_meta.check_is_dir(path);
+        file_watcher.add_watch(path);
         Node {
             rep_meta,
             path: Box::new(path.clone()),
@@ -110,23 +114,26 @@ impl Node {
         }
     }
 
+    // scan all the files (which are not detected before) in the directory
     #[async_recursion]
     pub async fn scan_all(
         &self,
         init_time: usize,
-        current: Weak<Node>,
+        cur_weak: Weak<Node>,
         file_watcher: &mut FileWatcher,
     ) -> MyResult<()> {
         let static_path = self.path.as_path();
-        let mut sub_files = unwrap_res!(tokio::fs::read_dir(static_path).await);
-        while let Some(sub_file) = unwrap_res!(sub_files.next_entry().await) {
+        let mut sub_files = unwrap_res!(tokio::fs::read_dir(static_path)
+            .await
+            .or(Err("Scan All Error : read dir error")));
+        while let Some(sub_file) = sub_files.next_entry().await.unwrap() {
             let child = Arc::new(Node::new_from_create(
                 &sub_file.path(),
                 init_time,
                 self.rep_meta.clone(),
-                Some(current.clone()),
+                Some(cur_weak.clone()),
+                file_watcher,
             ));
-            file_watcher.add_watch(&child.path);
             if child.is_dir {
                 child
                     .scan_all(init_time, Arc::downgrade(&child), file_watcher)
@@ -141,7 +148,6 @@ impl Node {
         Ok(())
     }
 
-    // get the child's write lock
     #[async_recursion]
     pub async fn handle_event(
         &self,
@@ -149,7 +155,7 @@ impl Node {
         mut walk: Vec<String>,
         op: ModOption,
         cur_weak: Weak<Node>,
-        file_wather: &mut FileWatcher,
+        file_watcher: &mut FileWatcher,
     ) -> MyResult<VectorTime> {
         // not the target node yet
         if !walk.is_empty() {
@@ -161,22 +167,21 @@ impl Node {
                 .ok_or("Event Handling Error : Node not found along the path")?;
             let child_weak = Arc::downgrade(child);
             let new_mod_time = child
-                .handle_event(path, walk, op, child_weak, file_wather)
+                .handle_event(path, walk, op, child_weak, file_watcher)
                 .await?;
             cur_data.mod_time.chkmax(&new_mod_time);
             Ok(new_mod_time)
         } else {
             error!("type : {:?}, name : {}", op.ty, op.name);
             match op.ty {
-                ModType::Create => Ok(self.handle_create(&op.name, op.time, cur_weak).await),
+                ModType::Create | ModType::MovedFrom => {
+                    self.handle_create(&op.name, op.time, cur_weak, file_watcher)
+                        .await
+                }
                 ModType::Delete => Ok(self.handle_delete(&op.name, op.time).await),
                 ModType::Modify => Ok(self.handle_modify(op.time).await),
                 ModType::MovedTo => {
                     self.handle_moved_to(&op.name, op.time, cur_weak).await;
-                    todo!();
-                }
-                ModType::MovedFrom => {
-                    self.handle_moved_from(&op.name, op.time).await;
                     todo!();
                 }
             }
@@ -211,22 +216,21 @@ impl Node {
         }
 
         let children = &self.data.read().await.children;
+        let mut undeleted = Vec::new();
 
-        let mut it = children.iter().peekable();
-
-        let mut tmp_list = Vec::new();
-
-        while let Some((name, child)) = it.next() {
-            tmp_list.push((child.is_dir, name));
+        for (_, child) in children {
+            if child.data.read().await.status != NodeStatus::Deleted {
+                undeleted.push(child);
+            }
         }
 
-        tmp_list.sort_by(|a, b| a.cmp(b));
+        undeleted.sort_by(|a, b| (a.is_dir, a.file_name()).cmp(&(b.is_dir, b.file_name())));
 
-        for (_, name) in &tmp_list {
-            let now_flag = *name == tmp_list.last().unwrap().1;
+        for child in &undeleted {
+            let now_flag = child.file_name() == undeleted.last().unwrap().file_name();
             let mut new_is_last = is_last.clone();
             new_is_last.push(now_flag);
-            children.get(*name).unwrap().tree(new_is_last).await;
+            child.tree(new_is_last).await;
         }
     }
 }
@@ -249,14 +253,27 @@ impl Node {
         name: &String,
         time: usize,
         parent: Weak<Node>,
-    ) -> VectorTime {
+        file_watcher: &mut FileWatcher,
+    ) -> MyResult<VectorTime> {
         let child_path = self.path.join(name);
-        let child = Node::new_from_create(&child_path, time, self.rep_meta.clone(), Some(parent));
+        let child = Arc::new(Node::new_from_create(
+            &child_path,
+            time,
+            self.rep_meta.clone(),
+            Some(parent),
+            file_watcher,
+        ));
+        if child.is_dir {
+            let res = child
+                .scan_all(time, Arc::downgrade(&child), file_watcher)
+                .await;
+            unwrap_res!(res);
+        }
         let mod_time = child.data.read().await.mod_time.clone();
         let mut parent_data = self.data.write().await;
-        parent_data.children.insert(name.clone(), Arc::new(child));
+        parent_data.children.insert(name.clone(), child);
         parent_data.mod_time.chkmax(&mod_time);
-        mod_time
+        Ok(mod_time)
     }
 
     pub async fn handle_delete(&self, name: &String, time: usize) -> VectorTime {
@@ -278,12 +295,8 @@ impl Node {
     }
 
     pub async fn handle_moved_to(&self, name: &String, time: usize, parent: Weak<Node>) {
-        self.handle_create(name, time, parent).await;
+        // self.handle_create(name, time, parent).await;
         // let child = self.data.read().await.children.get(name).unwrap().clone();
         // child.scan_all(time, Arc::downgrade(&child)).await.unwrap();
-    }
-
-    pub async fn handle_moved_from(&self, name: &String, time: usize) {
-        todo!()
     }
 }
