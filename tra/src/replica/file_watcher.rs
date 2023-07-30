@@ -33,6 +33,7 @@ impl FileWatcher {
 
     pub fn add_file(&mut self, node: &Arc<Node>) {
         // watching directory is enough
+        // self.inotify.watches().remove(wd)
         if node.is_dir {
             info!("add_watches: {:?}", node.path);
             let fd = self
@@ -87,9 +88,15 @@ impl FileWatcher {
             node.handle_delete(&name, time).await;
         } else if mask.contains(EventMask::MODIFY) {
             node.handle_modify(time).await;
+        } else if mask.contains(EventMask::MOVED_TO) {
+            // when file or dir move to here, first build the node
+            node.handle_moved_to(&name, time, Arc::downgrade(&node))
+                .await;
+            // then add watch for the whole dir
+            let child = node.data.read().await.children.get(&name).unwrap().clone();
+            self.bind_watches_recursive(&child).await;
         } else {
-            error!("MOVE event handling not implemented");
-            // TODO: add a panic here
+            error!("Unknown event mask: {:?}", mask);
         }
     }
 }

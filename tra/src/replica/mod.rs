@@ -130,7 +130,7 @@ impl Replica {
         let trees_collect_weak = Arc::downgrade(&self.trees_collect);
         get_res!(
             self.trees_collect
-                .init_subfiles(init_counter, trees_collect_weak)
+                .scan_all(init_counter, trees_collect_weak)
                 .await
         );
         self.file_watcher

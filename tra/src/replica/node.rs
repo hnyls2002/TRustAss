@@ -110,7 +110,7 @@ impl Node {
     }
 
     #[async_recursion]
-    pub async fn init_subfiles(&self, init_time: usize, current: Weak<Node>) -> MyResult<()> {
+    pub async fn scan_all(&self, init_time: usize, current: Weak<Node>) -> MyResult<()> {
         let static_path = self.path.as_path();
         let mut sub_files = get_res!(tokio::fs::read_dir(static_path).await);
         while let Some(sub_file) = get_res!(sub_files.next_entry().await) {
@@ -121,9 +121,7 @@ impl Node {
                 Some(current.clone()),
             ));
             if child.is_dir {
-                child
-                    .init_subfiles(init_time, Arc::downgrade(&child))
-                    .await?;
+                child.scan_all(init_time, Arc::downgrade(&child)).await?;
             }
             self.data
                 .write()
@@ -266,5 +264,11 @@ impl Node {
         self.data.write().await.modify(self.rep_meta.port, time);
         let mod_time = self.data.read().await.mod_time.clone();
         self.pushup_mtime(&mod_time).await;
+    }
+
+    pub async fn handle_moved_to(&self, name: &String, time: usize, parent: Weak<Node>) {
+        self.handle_create(name, time, parent).await;
+        let child = self.data.read().await.children.get(name).unwrap().clone();
+        child.scan_all(time, Arc::downgrade(&child)).await.unwrap();
     }
 }
