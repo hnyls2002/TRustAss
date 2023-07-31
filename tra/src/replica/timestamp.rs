@@ -32,23 +32,28 @@ impl VectorTime {
         Self { times }
     }
 
-    pub fn update(&mut self, id: u16, time: usize) {
-        self.times.insert(id, time);
-    }
-
     pub fn clear(&mut self) {
         self.times.clear();
     }
 
-    pub fn chkmax(&mut self, other: &Self) {
-        for (id, time) in &other.times {
-            if let Some(slef_time) = self.times.get(id) {
-                self.times.insert(*id, (*slef_time).max(*time));
-            } else {
-                self.times.insert(*id, *time);
-            }
+    pub fn update_singleton(&mut self, id: u16, time: usize) {
+        if let Some(old_time) = self.times.get_mut(&id) {
+            assert!(time > *old_time);
+            *old_time = time;
+        } else {
+            self.times.insert(id, time);
         }
     }
+
+    // pub fn chkmax(&mut self, other: &Self) {
+    //     for (id, time) in &other.times {
+    //         if let Some(slef_time) = self.times.get(id) {
+    //             self.times.insert(*id, (*slef_time).max(*time));
+    //         } else {
+    //             self.times.insert(*id, *time);
+    //         }
+    //     }
+    // }
 
     pub fn inside(&self, other: &VectorTime) -> bool {
         for (id, time) in &self.times {

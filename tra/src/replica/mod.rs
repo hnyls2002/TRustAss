@@ -3,6 +3,7 @@ pub mod file_sync;
 pub mod file_watcher;
 pub mod node;
 pub mod timestamp;
+pub mod tree;
 
 use std::{ffi::OsStr, path::PathBuf, sync::Arc};
 
@@ -131,10 +132,6 @@ pub struct ModOption {
 }
 
 impl Replica {
-    pub async fn tree(&self) {
-        self.trees_collect.tree(Vec::new()).await;
-    }
-
     pub fn new(port: u16) -> Self {
         let rep_meta = Arc::new(RepMeta::new(port));
         let mut file_watcher = FileWatcher::new();
@@ -192,11 +189,10 @@ impl Replica {
     }
 
     pub async fn handle_event(&mut self, event: &Event<&OsStr>) -> MyResult<()> {
-        let wd_id = event.wd.get_watch_descriptor_id();
         let path = self
             .file_watcher
-            .fd_map
-            .get(&wd_id)
+            .wd_map
+            .get(&event.wd)
             .expect("should have this file watched")
             .clone();
         let walk = self.rep_meta.decompose(&path);
