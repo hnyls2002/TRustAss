@@ -124,10 +124,11 @@ impl Node {
         Ok(())
     }
 
-    pub async fn modify(&self, id: u16, time: usize) {
+    pub async fn modify(&self, id: u16, time: usize) -> MyResult<()> {
         let mut data = self.data.write().await;
         data.mod_time.update_singleton(id, time);
         data.sync_time.update_singleton(id, time);
+        Ok(())
     }
 
     // just one file, actually removed in file system
@@ -253,6 +254,7 @@ impl Node {
         } else {
             match op.ty {
                 ModType::Create | ModType::MovedTo => {
+                    // create method : from parent node handling it
                     self.create(&op.name, op.time, cur_weak, file_watcher)
                         .await?;
                 }
@@ -261,14 +263,20 @@ impl Node {
                     let deleted = data
                         .children
                         .get(&op.name)
-                        .ok_or("Delete Error : Node not found")?;
+                        .ok_or("Delete Error : Node not found when handling Delete Event")?;
                     deleted
                         .delete_rm(self.rep_meta.id, op.time, file_watcher)
                         .await?;
                     data.mod_time.update_singleton(self.rep_meta.id, op.time);
                 }
                 ModType::Modify => {
-                    self.modify(self.rep_meta.id, op.time).await;
+                    let mut data = self.data.write().await;
+                    let modified = data
+                        .children
+                        .get(&op.name)
+                        .ok_or("Modify Error : Node not found when handling Modify event")?;
+                    modified.modify(self.rep_meta.id, op.time).await?;
+                    data.mod_time.update_singleton(self.rep_meta.id, op.time);
                 }
                 ModType::MovedFrom => {
                     let mut data = self.data.write().await;

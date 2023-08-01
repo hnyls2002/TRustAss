@@ -72,7 +72,7 @@ impl VectorTime {
     pub fn display(&self) -> String {
         let mut ret = String::new();
         for (id, time) in &self.times {
-            ret.push_str(&format!("({}, {}), ", id, time));
+            ret.push_str(&format!("({}, {}) ", id, time));
         }
         ret
     }

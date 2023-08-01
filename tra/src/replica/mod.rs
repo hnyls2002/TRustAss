@@ -75,6 +75,12 @@ impl Replica {
             .scan_all(init_counter, trees_collect_weak, &mut self.file_watcher)
             .await;
         unwrap_res!(res);
+        self.trees_collect
+            .data
+            .write()
+            .await
+            .mod_time
+            .update_singleton(self.rep_meta.id, init_counter);
         Ok(())
     }
 

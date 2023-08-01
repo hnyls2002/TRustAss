@@ -37,7 +37,14 @@ impl Node {
             print!("{}", self.file_name());
         }
 
-        println!("  \x1b[33m{}\x1b[0m", self.data.read().await.mod_time.display());
+        print!(
+            "  \x1b[33m{}\x1b[0m",
+            self.data.read().await.mod_time.display()
+        );
+        println!(
+            "  \x1b[32m{}\x1b[0m",
+            self.data.read().await.sync_time.display()
+        );
 
         let children = &self.data.read().await.children;
         let mut undeleted = Vec::new();
