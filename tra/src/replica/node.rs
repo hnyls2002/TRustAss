@@ -74,7 +74,7 @@ impl Node {
         parent: Option<Weak<Node>>,
         file_watcher: &mut FileWatcher,
     ) -> Self {
-        let create_time = SingletonTime::new(rep_meta.port, time);
+        let create_time = SingletonTime::new(rep_meta.id, time);
         let data = NodeData {
             children: HashMap::new(),
             mod_time: VectorTime::from_singleton_time(&create_time),
@@ -120,7 +120,7 @@ impl Node {
         parent_data.children.insert(name.clone(), child);
         parent_data
             .mod_time
-            .update_singleton(self.rep_meta.port, time);
+            .update_singleton(self.rep_meta.id, time);
         Ok(())
     }
 
@@ -249,7 +249,7 @@ impl Node {
                 .await?;
             cur_data
                 .mod_time
-                .update_singleton(self.rep_meta.port, op.time);
+                .update_singleton(self.rep_meta.id, op.time);
         } else {
             match op.ty {
                 ModType::Create | ModType::MovedTo => {
@@ -263,12 +263,12 @@ impl Node {
                         .get(&op.name)
                         .ok_or("Delete Error : Node not found")?;
                     deleted
-                        .delete_rm(self.rep_meta.port, op.time, file_watcher)
+                        .delete_rm(self.rep_meta.id, op.time, file_watcher)
                         .await?;
-                    data.mod_time.update_singleton(self.rep_meta.port, op.time);
+                    data.mod_time.update_singleton(self.rep_meta.id, op.time);
                 }
                 ModType::Modify => {
-                    self.modify(self.rep_meta.port, op.time).await;
+                    self.modify(self.rep_meta.id, op.time).await;
                 }
                 ModType::MovedFrom => {
                     let mut data = self.data.write().await;
@@ -277,9 +277,9 @@ impl Node {
                         .get(&op.name)
                         .ok_or("Delete Error : Node not found when handling MovedTo event")?;
                     deleted
-                        .delete_moved_from(self.rep_meta.port, op.time, file_watcher)
+                        .delete_moved_from(self.rep_meta.id, op.time, file_watcher)
                         .await?;
-                    data.mod_time.update_singleton(self.rep_meta.port, op.time);
+                    data.mod_time.update_singleton(self.rep_meta.id, op.time);
                 }
             };
         };

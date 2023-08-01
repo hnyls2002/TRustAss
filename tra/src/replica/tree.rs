@@ -1,6 +1,9 @@
 use async_recursion::async_recursion;
 
-use super::{node::{Node, NodeStatus}, Replica};
+use super::{
+    node::{Node, NodeStatus},
+    Replica,
+};
 
 impl Replica {
     pub async fn tree(&self) {
@@ -29,10 +32,12 @@ impl Node {
             }
         }
         if self.is_dir {
-            println!("\x1b[1;34m{}\x1b[0m", self.file_name());
+            print!("\x1b[1;34m{}\x1b[0m", self.file_name());
         } else {
-            println!("{}", self.file_name());
+            print!("{}", self.file_name());
         }
+
+        println!("  \x1b[33m{}\x1b[0m", self.data.read().await.mod_time.display());
 
         let children = &self.data.read().await.children;
         let mut undeleted = Vec::new();
