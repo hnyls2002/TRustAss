@@ -4,8 +4,9 @@ pub mod debugger;
 pub mod replica;
 pub mod reptra;
 
+use centra::Centra;
 use config::{BASE_REP_NUM, TRA_PORT};
-use reptra::rsync;
+use reptra::{rsync, Reptra};
 
 pub use config::MyResult;
 
@@ -19,17 +20,17 @@ async fn demo() {
 
 #[tokio::main]
 async fn main() {
-    let demo_handle = tokio::spawn(async { demo().await });
+    let mut centra = Centra::new(TRA_PORT);
+    centra.start_services().await;
 
-    // start the the tra algorithm here
-    let handle = tokio::spawn(centra::start_centra(BASE_REP_NUM));
+    let mut reptra_list: Vec<Reptra> = Vec::new();
+    for _ in 0..BASE_REP_NUM {
+        let mut reptra = Reptra::new();
+        reptra.start_service().await;
+        reptra.send_port(TRA_PORT).await.unwrap();
+        reptra.greet(TRA_PORT).await.unwrap();
+        reptra_list.push(reptra);
+    }
 
-    reptra::start_reptra(BASE_REP_NUM).expect("Failed to start reptra");
-
-    demo_handle.await.expect("Failed to join demo thread");
-
-    handle
-        .await
-        .expect("Failed to join tra thread")
-        .expect("Failed to start tra");
+    centra.collect_ports(BASE_REP_NUM).await;
 }

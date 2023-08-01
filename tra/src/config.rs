@@ -14,6 +14,10 @@ pub async fn ctrl_c_singal() {
 }
 
 pub type MyResult<T> = Result<T, String>;
+pub type RpcChannel = tonic::transport::Channel;
+pub type MpscSender<T> = tokio::sync::mpsc::Sender<T>;
+pub type MpscReceiver<T> = tokio::sync::mpsc::Receiver<T>;
+pub type ServiceHandle = tokio::task::JoinHandle<Result<(), tonic::transport::Error>>;
 
 #[macro_export]
 macro_rules! unwrap_res {

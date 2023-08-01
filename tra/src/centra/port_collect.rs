@@ -1,9 +1,10 @@
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::Sender;
 use tonic::{Request, Response, Status};
 
 use super::{Null, PortCollect, PortNumber};
 
 pub mod controller {
+    #![allow(non_snake_case)]
     include!("../protos/controller.rs");
 }
 
@@ -21,14 +22,4 @@ impl PortCollect for PortCollector {
             .expect("failed to send port");
         Ok(Response::new(Null {}))
     }
-}
-
-pub async fn collect_ports(mut rx: Receiver<u16>, rep_num: usize) -> Vec<u16> {
-    let mut ret = Vec::new();
-    for _ in 0..rep_num {
-        if let Some(port) = rx.recv().await {
-            ret.push(port);
-        }
-    }
-    ret
 }

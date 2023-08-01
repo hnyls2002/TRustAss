@@ -1,19 +1,19 @@
 pub mod booter;
 pub mod rsync;
+
 pub mod peer {
     #![allow(non_snake_case)]
     include!("../protos/peer.rs");
 }
 
 use crate::{
-    centra::{GreeterClient, HelloRequest},
-    config::TRA_STATIC_ADDR,
-    debug, MyResult,
+    centra::{GreeterClient, HelloRequest, PortCollectClient, PortNumber},
+    config::{RpcChannel, ServiceHandle},
+    info, MyResult,
 };
-use booter::boot_server;
-use std::thread;
-use tokio::runtime::Runtime;
-use tonic::Request;
+use std::collections::HashMap;
+
+use tonic::{transport::Server, Request};
 
 pub use peer::{
     rsync_client::RsyncClient,
@@ -21,78 +21,75 @@ pub use peer::{
     DiffSource, Patch, ReqRst, SyncMsg,
 };
 
-pub async fn greet_test(tonic_channel: tonic::transport::Channel) -> MyResult<()> {
-    let mut client = GreeterClient::new(tonic_channel);
-    let mut counter = 0;
+use self::booter::{get_incoming, PeerServer};
 
-    loop {
-        let request = Request::new(HelloRequest {
-            name: format!("asd {} times", counter),
-        });
+pub struct Reptra {
+    pub port: Option<u16>,
+    pub channels: HashMap<u16, RpcChannel>,
+    pub service_handle: Option<ServiceHandle>,
+}
 
-        counter += 1;
-
-        let response = client.say_hello(request).await;
-
-        let response_msg = response.unwrap().into_inner().message;
-
-        debug!("{}", response_msg);
-
-        if counter >= 3 {
-            break;
+impl Reptra {
+    pub fn new() -> Self {
+        Self {
+            port: None,
+            channels: HashMap::new(),
+            service_handle: None,
         }
     }
 
-    Ok(())
-}
-
-pub async fn async_work() -> MyResult<()> {
-    // build the tonic channel to connect to centra server
-    let tonic_channel = tonic::transport::Channel::from_static(TRA_STATIC_ADDR)
-        .connect()
-        .await
-        .unwrap();
-
-    // boot the reptra server here
-    let server_handle = boot_server(tonic_channel.clone()).await;
-
-    // ----------------- do reptra things below -----------------
-    let greet_channel = tonic_channel.clone();
-    let greet_handle = tokio::spawn(async {
-        greet_test(greet_channel).await.expect("greet test failed");
-    });
-
-    if greet_handle.await.is_err() {
-        return Err("greet server failed".into());
+    pub async fn get_channel(&mut self, port: u16) -> MyResult<RpcChannel> {
+        if self.channels.get(&port).is_some() {
+            return Ok(self.channels.get(&port).unwrap().clone());
+        }
+        let addr = format!("http://[::]:{}", port);
+        let channel = RpcChannel::from_shared(addr).or(Err("failed to build channel"))?;
+        let channel = channel
+            .connect()
+            .await
+            .or(Err("failed to connect channel"))?;
+        self.channels.insert(port, channel.clone());
+        return Ok(channel);
     }
 
-    if server_handle.await.is_err() {
-        return Err("reptra server failed".into());
+    pub async fn start_service(&mut self) {
+        let (port, incoming) = get_incoming().await;
+        self.port = Some(port);
+        let peer_server = PeerServer {};
+        let service_handle = tokio::spawn(async {
+            Server::builder()
+                .add_service(RsyncServer::new(peer_server))
+                .serve_with_incoming(incoming)
+                .await
+        });
+        self.service_handle = Some(service_handle);
     }
 
-    Ok(())
-}
-
-pub fn start_reptra(rep_num: usize) -> MyResult<()> {
-    let mut rep_threads = Vec::new();
-    for _ in 0..rep_num {
-        rep_threads.push(thread::spawn(|| -> MyResult<()> {
-            let rt = Runtime::new().expect("failed to create runtime");
-
-            // use this to enter the runtime context, so that we can spawn tasks
-            // that is, calling `boot_server()` here would not cause panic
-            // let _guard = rt.enter();
-            // let (server, port) = boot_server();
-            // info!("the port number is {}", port);
-
-            rt.block_on(async_work())?;
-            Ok(())
-        }));
+    pub async fn send_port(&mut self, centra_port: u16) -> MyResult<()> {
+        let channel = self.get_channel(centra_port).await?;
+        let mut port_sender = PortCollectClient::new(channel);
+        let msg = PortNumber {
+            port: self.port.unwrap() as i32,
+        };
+        port_sender
+            .send_port(Request::new(msg))
+            .await
+            .or(Err("failed to send port"))?;
+        Ok(())
     }
 
-    for thread in rep_threads {
-        thread.join().expect("peer thread join failed")?;
+    pub async fn greet(&mut self, centra_port: u16) -> MyResult<()> {
+        let channel = self.get_channel(centra_port).await?;
+        let mut client = GreeterClient::new(channel);
+        for i in 0..3 {
+            let request = Request::new(HelloRequest {
+                name: format!("Hi {} times", i),
+            });
+            let response = client.say_hello(request).await;
+            let response_msg = response.unwrap().into_inner().message;
+            println!("Response from Centra : {}", response_msg);
+        }
+        info!("greet test passed");
+        Ok(())
     }
-
-    Ok(())
 }
