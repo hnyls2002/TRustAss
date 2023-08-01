@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::{Arc, Weak},
-};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use async_recursion::async_recursion;
 
@@ -37,7 +33,6 @@ pub struct Node {
     pub path: Box<PathBuf>,
     pub is_dir: bool,
     pub data: RwLock<NodeData>,
-    pub parent: Option<Weak<Node>>,
 }
 
 // basic methods
@@ -51,8 +46,8 @@ impl Node {
         let path = rep_meta.prefix.clone();
         let data = NodeData {
             children: HashMap::new(),
-            mod_time: VectorTime::default(),
-            sync_time: VectorTime::default(),
+            mod_time: VectorTime::new_empty(rep_meta.id),
+            sync_time: VectorTime::new_empty(rep_meta.id),
             create_time: SingletonTime::default(),
             status: NodeStatus::Exist,
             wd: file_watcher.add_watch(&path),
@@ -62,7 +57,6 @@ impl Node {
             rep_meta,
             is_dir: true,
             data: RwLock::new(data),
-            parent: None,
         }
     }
 
@@ -71,7 +65,6 @@ impl Node {
         path: &PathBuf,
         time: usize,
         rep_meta: Arc<RepMeta>,
-        parent: Option<Weak<Node>>,
         file_watcher: &mut FileWatcher,
     ) -> Self {
         let create_time = SingletonTime::new(rep_meta.id, time);
@@ -88,7 +81,6 @@ impl Node {
             is_dir: rep_meta.check_is_dir(path),
             rep_meta,
             data: RwLock::new(data),
-            parent,
         }
     }
 }
@@ -99,7 +91,6 @@ impl Node {
         &self,
         name: &String,
         time: usize,
-        parent: Weak<Node>,
         file_watcher: &mut FileWatcher,
     ) -> MyResult<()> {
         let child_path = self.path.join(name);
@@ -107,38 +98,28 @@ impl Node {
             &child_path,
             time,
             self.rep_meta.clone(),
-            Some(parent),
             file_watcher,
         ));
         if child.is_dir {
-            let res = child
-                .scan_all(time, Arc::downgrade(&child), file_watcher)
-                .await;
+            let res = child.scan_all(time, file_watcher).await;
             unwrap_res!(res);
         }
         let mut parent_data = self.data.write().await;
         parent_data.children.insert(name.clone(), child);
-        parent_data
-            .mod_time
-            .update_singleton(self.rep_meta.id, time);
+        parent_data.mod_time.update_singleton(time);
         Ok(())
     }
 
-    pub async fn modify(&self, id: u16, time: usize) -> MyResult<()> {
+    pub async fn modify(&self, time: usize) -> MyResult<()> {
         let mut data = self.data.write().await;
-        data.mod_time.update_singleton(id, time);
-        data.sync_time.update_singleton(id, time);
+        data.mod_time.update_singleton(time);
+        data.sync_time.update_singleton(time);
         Ok(())
     }
 
     // just one file, actually removed in file system
     // and the watch descriptor is automatically removed
-    pub async fn delete_rm(
-        &self,
-        id: u16,
-        time: usize,
-        file_watcher: &mut FileWatcher,
-    ) -> MyResult<()> {
+    pub async fn delete_rm(&self, time: usize, file_watcher: &mut FileWatcher) -> MyResult<()> {
         let mut data = self.data.write().await;
         // the file system cannot delete a directory that is not empty
         for (_, child) in data.children.iter() {
@@ -148,7 +129,7 @@ impl Node {
         }
         // clear the mod time && update the sync time
         data.mod_time.clear();
-        data.sync_time.update_singleton(id, time);
+        data.sync_time.update_singleton(time);
         data.status = NodeStatus::Deleted;
         if data.wd.is_some() {
             let wd = data.wd.take().unwrap();
@@ -168,7 +149,6 @@ impl Node {
     #[async_recursion]
     pub async fn delete_moved_from(
         &self,
-        id: u16,
         time: usize,
         file_watcher: &mut FileWatcher,
     ) -> MyResult<()> {
@@ -177,10 +157,10 @@ impl Node {
             return Ok(());
         }
         for (_, child) in data.children.iter() {
-            unwrap_res!(child.delete_moved_from(id, time, file_watcher).await);
+            unwrap_res!(child.delete_moved_from(time, file_watcher).await);
         }
         data.mod_time.clear();
-        data.sync_time.update_singleton(id, time);
+        data.sync_time.update_singleton(time);
         data.status = NodeStatus::Deleted;
         if data.wd.is_some() {
             let wd = data.wd.take().unwrap();
@@ -195,12 +175,7 @@ impl Node {
 impl Node {
     // scan all the files (which are not detected before) in the directory
     #[async_recursion]
-    pub async fn scan_all(
-        &self,
-        init_time: usize,
-        cur_weak: Weak<Node>,
-        file_watcher: &mut FileWatcher,
-    ) -> MyResult<()> {
+    pub async fn scan_all(&self, init_time: usize, file_watcher: &mut FileWatcher) -> MyResult<()> {
         let static_path = self.path.as_path();
         let mut sub_files = unwrap_res!(tokio::fs::read_dir(static_path)
             .await
@@ -210,13 +185,10 @@ impl Node {
                 &sub_file.path(),
                 init_time,
                 self.rep_meta.clone(),
-                Some(cur_weak.clone()),
                 file_watcher,
             ));
             if child.is_dir {
-                child
-                    .scan_all(init_time, Arc::downgrade(&child), file_watcher)
-                    .await?;
+                child.scan_all(init_time, file_watcher).await?;
             }
             self.data
                 .write()
@@ -233,7 +205,6 @@ impl Node {
         path: &PathBuf,
         mut walk: Vec<String>,
         op: ModOption,
-        cur_weak: Weak<Node>,
         file_watcher: &mut FileWatcher,
     ) -> MyResult<()> {
         // not the target node yet
@@ -244,19 +215,15 @@ impl Node {
                 .children
                 .get(&child_name)
                 .ok_or("Event Handling Error : Node not found along the path")?;
-            let child_weak = Arc::downgrade(child);
             child
-                .handle_event(path, walk, op.clone(), child_weak, file_watcher)
+                .handle_event(path, walk, op.clone(), file_watcher)
                 .await?;
-            cur_data
-                .mod_time
-                .update_singleton(self.rep_meta.id, op.time);
+            cur_data.mod_time.update_singleton(op.time);
         } else {
             match op.ty {
                 ModType::Create | ModType::MovedTo => {
                     // create method : from parent node handling it
-                    self.create(&op.name, op.time, cur_weak, file_watcher)
-                        .await?;
+                    self.create(&op.name, op.time, file_watcher).await?;
                 }
                 ModType::Delete => {
                     let mut data = self.data.write().await;
@@ -264,10 +231,8 @@ impl Node {
                         .children
                         .get(&op.name)
                         .ok_or("Delete Error : Node not found when handling Delete Event")?;
-                    deleted
-                        .delete_rm(self.rep_meta.id, op.time, file_watcher)
-                        .await?;
-                    data.mod_time.update_singleton(self.rep_meta.id, op.time);
+                    deleted.delete_rm(op.time, file_watcher).await?;
+                    data.mod_time.update_singleton(op.time);
                 }
                 ModType::Modify => {
                     let mut data = self.data.write().await;
@@ -275,8 +240,8 @@ impl Node {
                         .children
                         .get(&op.name)
                         .ok_or("Modify Error : Node not found when handling Modify event")?;
-                    modified.modify(self.rep_meta.id, op.time).await?;
-                    data.mod_time.update_singleton(self.rep_meta.id, op.time);
+                    modified.modify(op.time).await?;
+                    data.mod_time.update_singleton(op.time);
                 }
                 ModType::MovedFrom => {
                     let mut data = self.data.write().await;
@@ -284,10 +249,8 @@ impl Node {
                         .children
                         .get(&op.name)
                         .ok_or("Delete Error : Node not found when handling MovedTo event")?;
-                    deleted
-                        .delete_moved_from(self.rep_meta.id, op.time, file_watcher)
-                        .await?;
-                    data.mod_time.update_singleton(self.rep_meta.id, op.time);
+                    deleted.delete_moved_from(op.time, file_watcher).await?;
+                    data.mod_time.update_singleton(op.time);
                 }
             };
         };

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct VectorTime {
+    id: u16,
     times: HashMap<u16, usize>,
 }
 
@@ -17,31 +18,33 @@ impl SingletonTime {
     }
 }
 
-impl Default for VectorTime {
-    fn default() -> Self {
+impl VectorTime {
+    pub fn new_empty(id: u16) -> Self {
         Self {
-            times: Default::default(),
+            id,
+            times: HashMap::default(),
         }
     }
-}
 
-impl VectorTime {
     pub fn from_singleton_time(create_time: &SingletonTime) -> Self {
         let mut times = HashMap::new();
         times.insert(create_time.id, create_time.time);
-        Self { times }
+        Self {
+            id: create_time.id,
+            times,
+        }
     }
 
     pub fn clear(&mut self) {
         self.times.clear();
     }
 
-    pub fn update_singleton(&mut self, id: u16, time: usize) {
-        if let Some(old_time) = self.times.get_mut(&id) {
+    pub fn update_singleton(&mut self, time: usize) {
+        if let Some(old_time) = self.times.get_mut(&self.id) {
             assert!(time > *old_time);
             *old_time = time;
         } else {
-            self.times.insert(id, time);
+            self.times.insert(self.id, time);
         }
     }
 

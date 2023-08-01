@@ -69,10 +69,9 @@ impl Replica {
     pub async fn init_file_trees(&mut self) -> MyResult<()> {
         // init the whole file tree, all inintial is in time 1
         let init_counter = self.rep_meta.add_counter().await;
-        let trees_collect_weak = Arc::downgrade(&self.trees_collect);
         let res = self
             .trees_collect
-            .scan_all(init_counter, trees_collect_weak, &mut self.file_watcher)
+            .scan_all(init_counter, &mut self.file_watcher)
             .await;
         unwrap_res!(res);
         self.trees_collect
@@ -80,7 +79,7 @@ impl Replica {
             .write()
             .await
             .mod_time
-            .update_singleton(self.rep_meta.id, init_counter);
+            .update_singleton(init_counter);
         Ok(())
     }
 
@@ -137,10 +136,9 @@ impl Replica {
             name,
             is_dir: event.mask.contains(EventMask::ISDIR),
         };
-        let cur_weak = Arc::downgrade(&self.trees_collect);
         let res = self
             .trees_collect
-            .handle_event(&path, walk, op, cur_weak, &mut self.file_watcher)
+            .handle_event(&path, walk, op, &mut self.file_watcher)
             .await;
         unwrap_res!(res);
         Ok(())
