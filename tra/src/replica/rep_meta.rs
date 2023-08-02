@@ -7,16 +7,16 @@ use crate::config::TMP_PATH;
 use super::node::NodeStatus;
 
 pub struct RepMeta {
-    pub(super) id: u16,
+    pub(super) id: i32,
     pub(super) prefix: PathBuf,
     pub(super) counter: RwLock<usize>,
 }
 
 impl RepMeta {
-    pub fn new(port: u16) -> Self {
+    pub fn new(id: i32) -> Self {
         Self {
-            id: port,
-            prefix: PathBuf::from(format!("{}{}", TMP_PATH, port)),
+            id,
+            prefix: PathBuf::from(format!("{}{}", TMP_PATH, id)),
             counter: RwLock::new(0),
         }
     }

@@ -55,8 +55,8 @@ pub struct ModOption {
 }
 
 impl Replica {
-    pub fn new(port: u16) -> Self {
-        let rep_meta = Arc::new(RepMeta::new(port));
+    pub fn new(id: i32) -> Self {
+        let rep_meta = Arc::new(RepMeta::new(id));
         let mut file_watcher = FileWatcher::new();
         let trees_collect = Arc::new(Node::new_trees_collect(rep_meta.clone(), &mut file_watcher));
         Self {

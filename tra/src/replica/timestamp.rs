@@ -2,24 +2,24 @@ use std::collections::HashMap;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct VectorTime {
-    id: u16,
-    times: HashMap<u16, usize>,
+    id: i32,
+    times: HashMap<i32, usize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct SingletonTime {
-    id: u16,
+    id: i32,
     time: usize,
 }
 
 impl SingletonTime {
-    pub fn new(id: u16, time: usize) -> Self {
+    pub fn new(id: i32, time: usize) -> Self {
         Self { id, time }
     }
 }
 
 impl VectorTime {
-    pub fn new_empty(id: u16) -> Self {
+    pub fn new_empty(id: i32) -> Self {
         Self {
             id,
             times: HashMap::default(),

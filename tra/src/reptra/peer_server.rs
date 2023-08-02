@@ -1,8 +1,35 @@
+use std::{collections::HashMap, sync::Arc};
+
 use fast_rsync::{apply, diff, Signature, SignatureOptions};
 
+use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 
-use super::{booter::PeerServer, DiffSource, Patch, ReqRst, Rsync, SyncMsg};
+use crate::{
+    config::RpcChannel,
+    machine::{channel_connect, ServeAddr},
+    replica::Replica,
+    MyResult,
+};
+
+use super::{DiffSource, Patch, ReqRst, Rsync, SyncMsg};
+
+pub struct PeerServer {
+    pub replica: Arc<Replica>,
+    pub channels: Arc<RwLock<HashMap<ServeAddr, RpcChannel>>>,
+}
+
+impl PeerServer {
+    pub async fn get_channel(&self, mac_addr: &ServeAddr) -> MyResult<RpcChannel> {
+        let mut inner = self.channels.write().await;
+        if inner.get(&mac_addr).is_some() {
+            return Ok(inner.get(&mac_addr).unwrap().clone());
+        }
+        let channel = channel_connect(mac_addr).await?;
+        inner.insert(mac_addr.clone(), channel.clone());
+        return Ok(channel);
+    }
+}
 
 pub fn get_data(path: &String) -> Vec<u8> {
     todo!()
@@ -31,6 +58,7 @@ impl Rsync for PeerServer {
 }
 
 pub fn demo() {
+    // TODO
     let data1 = "hello fuck".as_bytes();
     let data2 = "fuck you".as_bytes();
     let option = SignatureOptions {

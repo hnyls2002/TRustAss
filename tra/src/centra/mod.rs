@@ -6,7 +6,10 @@ pub mod controller {
     include!("../protos/controller.rs");
 }
 
-use crate::config::{MpscReceiver, MpscSender, ServiceHandle};
+use crate::{
+    config::{MpscReceiver, MpscSender, ServiceHandle},
+    machine::ServeAddr,
+};
 use tokio::sync::mpsc;
 use tonic::transport::Server;
 
@@ -26,23 +29,23 @@ pub use greeter::MyGreeter;
 pub use port_collect::PortCollector;
 
 pub struct Centra {
-    pub port: u16,
+    pub serve_addr: ServeAddr,
     pub replica: Replica,
-    pub port_tx: MpscSender<u16>,
-    pub port_rx: MpscReceiver<u16>,
-    pub port_list: Vec<u16>,
+    pub addr_tx: MpscSender<ServeAddr>,
+    pub addr_rx: MpscReceiver<ServeAddr>,
+    pub reptra_addrs: Vec<ServeAddr>,
     pub service_handle: Option<ServiceHandle>,
 }
 
 impl Centra {
-    pub fn new(port: u16) -> Self {
+    pub fn new(serve_addr: &ServeAddr) -> Self {
         let (tx, rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
         Self {
-            port,
-            replica: Replica::new(port),
-            port_tx: tx,
-            port_rx: rx,
-            port_list: Vec::new(),
+            serve_addr: serve_addr.clone(),
+            replica: Replica::new(0),
+            addr_tx: tx,
+            addr_rx: rx,
+            reptra_addrs: Vec::new(),
             service_handle: None,
         }
     }
@@ -50,14 +53,14 @@ impl Centra {
     pub async fn start_services(&mut self) {
         let greeter = MyGreeter::default();
         let port_collector = PortCollector {
-            tx: self.port_tx.clone(),
+            tx: self.addr_tx.clone(),
         };
 
         let server = Server::builder()
             .add_service(GreeterServer::new(greeter))
             .add_service(PortCollectServer::new(port_collector))
             // .serve_with_shutdown("[::]:8080".parse().unwrap(), ctrl_c_singal());
-            .serve(format!("[::]:{}", self.port).parse().unwrap());
+            .serve(self.serve_addr.addr().parse().unwrap());
 
         // boot the tra server here
         self.service_handle = Some(tokio::spawn(async {
@@ -70,9 +73,9 @@ impl Centra {
 
     pub async fn collect_ports(&mut self, rep_num: usize) {
         for _ in 0..rep_num {
-            if let Some(port) = self.port_rx.recv().await {
-                self.port_list.push(port);
-                info!("Port {} is collected.", port);
+            if let Some(serve_addr) = self.addr_rx.recv().await {
+                self.reptra_addrs.push(serve_addr);
+                info!("Port {} is collected.", serve_addr.port());
             } else {
                 panic!("The port collect channel is closed unexpectedly.");
             }

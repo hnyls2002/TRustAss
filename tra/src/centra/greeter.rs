@@ -12,7 +12,7 @@ impl Greeter for MyGreeter {
     ) -> Result<Response<HelloReply>, Status> {
         let name = request.into_inner().name;
         let reply = HelloReply {
-            message: format!("Received, hello, {}!", name),
+            message: format!("Received, the greeting message is \"{}\"", name),
         };
         Ok(Response::new(reply))
     }
