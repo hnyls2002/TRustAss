@@ -6,14 +6,14 @@ use super::{
 };
 
 impl Replica {
-    pub async fn tree(&self) {
-        self.trees_collect.tree(Vec::new()).await;
+    pub async fn tree(&self, show_detail: bool) {
+        self.trees_collect.tree(show_detail, Vec::new()).await;
     }
 }
 
 impl Node {
     #[async_recursion]
-    pub async fn tree(&self, is_last: Vec<bool>) {
+    pub async fn tree(&self, show_detail: bool, is_last: Vec<bool>) {
         // println!("{}", self.path.display());
         for i in 0..is_last.len() {
             let flag = is_last.get(i).unwrap();
@@ -37,14 +37,17 @@ impl Node {
             print!("{}", self.file_name());
         }
 
-        print!(
-            "  \x1b[33m{}\x1b[0m",
-            self.data.read().await.mod_time.display()
-        );
-        println!(
-            "  \x1b[32m{}\x1b[0m",
-            self.data.read().await.sync_time.display()
-        );
+        if show_detail {
+            print!(
+                "  \x1b[33m{}\x1b[0m",
+                self.data.read().await.mod_time.display()
+            );
+            print!(
+                "  \x1b[32m{}\x1b[0m",
+                self.data.read().await.sync_time.display()
+            );
+        }
+        println!("");
 
         let children = &self.data.read().await.children;
         let mut undeleted = Vec::new();
@@ -61,7 +64,7 @@ impl Node {
             let now_flag = child.file_name() == undeleted.last().unwrap().file_name();
             let mut new_is_last = is_last.clone();
             new_is_last.push(now_flag);
-            child.tree(new_is_last).await;
+            child.tree(show_detail, new_is_last).await;
         }
     }
 }

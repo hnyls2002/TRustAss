@@ -16,7 +16,7 @@ async fn demo() {
     peer_server::demo();
     let mut rep = replica::Replica::new(1926);
     rep.init_file_trees().await.expect("Failed to init replica");
-    rep.tree().await;
+    rep.tree(false).await;
     rep.watching().await;
 }
 

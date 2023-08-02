@@ -15,7 +15,6 @@ use tonic::transport::Server;
 
 use crate::config::CHANNEL_BUFFER_SIZE;
 use crate::info;
-use crate::replica::Replica;
 
 pub use controller::{
     greeter_client::GreeterClient,
@@ -30,7 +29,6 @@ pub use port_collect::PortCollector;
 
 pub struct Centra {
     pub serve_addr: ServeAddr,
-    pub replica: Replica,
     pub addr_tx: MpscSender<ServeAddr>,
     pub addr_rx: MpscReceiver<ServeAddr>,
     pub reptra_addrs: Vec<ServeAddr>,
@@ -42,7 +40,6 @@ impl Centra {
         let (tx, rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
         Self {
             serve_addr: serve_addr.clone(),
-            replica: Replica::new(0),
             addr_tx: tx,
             addr_rx: rx,
             reptra_addrs: Vec::new(),

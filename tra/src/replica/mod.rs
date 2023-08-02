@@ -57,6 +57,11 @@ pub struct ModOption {
 impl Replica {
     pub fn new(id: i32) -> Self {
         let rep_meta = Arc::new(RepMeta::new(id));
+        if !rep_meta.check_exist(&rep_meta.prefix) {
+            std::fs::create_dir(&rep_meta.prefix).unwrap();
+        } else if !rep_meta.check_is_dir(&rep_meta.prefix) {
+            panic!("The root path is not a directory!");
+        }
         let mut file_watcher = FileWatcher::new();
         let trees_collect = Arc::new(Node::new_trees_collect(rep_meta.clone(), &mut file_watcher));
         Self {
@@ -112,7 +117,7 @@ impl Replica {
                     self.handle_event(&event).await.unwrap();
                 }
             }
-            self.tree().await;
+            self.tree(true).await;
         }
     }
 

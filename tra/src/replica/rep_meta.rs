@@ -16,7 +16,7 @@ impl RepMeta {
     pub fn new(id: i32) -> Self {
         Self {
             id,
-            prefix: PathBuf::from(format!("{}{}", TMP_PATH, id)),
+            prefix: PathBuf::from(format!("{}replica-{}", TMP_PATH, id)),
             counter: RwLock::new(0),
         }
     }

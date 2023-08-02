@@ -40,8 +40,11 @@ impl Reptra {
 
     pub async fn start_service(&mut self, id: i32) {
         let (serve_addr, incoming) = get_listener().await;
+        let mut replica = Replica::new(id);
+        replica.init_file_trees().await.unwrap();
+        replica.tree(false).await;
         let peer_server = PeerServer {
-            replica: Arc::new(Replica::new(id)),
+            replica: Arc::new(replica),
             channels: Arc::new(RwLock::new(HashMap::new())),
         };
         let service_handle = tokio::spawn(async {
