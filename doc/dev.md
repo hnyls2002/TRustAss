@@ -18,8 +18,8 @@
 - [x] CREATE
 - [x] DELETE
 - [x] MODIFY
-- [ ] MOVED_TO
-- [ ] MOVED_FROM
+- [x] MOVED_TO
+- [x] MOVED_FROM
 
 Possible Solution
 
@@ -29,8 +29,42 @@ Possible Solution
 
 Other Problems
 
-- [ ] folder从别的地方移动过来，可能直接整个文件夹移动过来（也就是没有`-r`的`mv`，只是将directory的inode移动，实际上就是所有sub files全部同时移动），没有办法进行监测，所以需要主动再次扫描文件夹
-- [ ] folder的删除如果整个移动走了，可能需要把inotify里面的watch给unregister掉
+- [x] folder从别的地方移动过来，可能直接整个文件夹移动过来（也就是没有`-r`的`mv`，只是将directory的inode移动，实际上就是所有sub files全部同时移动），没有办法进行监测，所以需要主动再次扫描文件夹
+- [x] folder的删除如果整个移动走了，可能需要把inotify里面的watch给unregister掉
+
+### File Watcher
+
+使用`inotify`来完成对于文件变化的检测
+
+- 本地的修改需要及时地创建（删除）watcher
+- 对于sync，也需要创建和删除watcher
+
+所以对于file watcher来说，必须支持不同的控制流的合并
+
+- 先调用`read_events_blocking()`来获取事件
+- 再对于create或者delete来更新对应的watch
+
+对于sync操作造成的修改
+
+- 需要和local的修改区分开来（能够辨识这是sync操作造成的修改）
+- 还需要能调用Watch的add和remove接口
+
+如何合并两个source
+
+- `read_events_blocking()`作为一个source
+- sync得到的事件，通过channel，作为另一个source
+- 两个source通过`select!`来选择
+
+如何将`read_events_blocking()`变成一个异步的source
+
+- 使用`tokio::task::spawn_blocking`来将`read_events_blocking()`包装成一个异步的source
+- 为什么：如果直接包装，会阻塞runtime的调度（占用当前线程），导致其他的异步任务无法执行
+
+如何区分sync操作和local操作
+
+- 在sync操作之前，给需要修改的文件打上tag
+- read到的event自动忽略有tag的文件修改
+- 结束之后取消tag
 
 ### Reptra Emulation
 
