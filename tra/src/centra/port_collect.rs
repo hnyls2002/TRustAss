@@ -11,14 +11,18 @@ pub mod controller {
 }
 
 pub struct PortCollector {
-    pub tx: Sender<ServeAddr>,
+    pub tx: Sender<(i32, ServeAddr)>,
 }
 
 #[tonic::async_trait]
 impl PortCollect for PortCollector {
     async fn send_port(&self, req: Request<PortNumber>) -> Result<Response<Null>, Status> {
-        let serve_addr = ServeAddr::new(req.into_inner().port as u16);
-        self.tx.send(serve_addr).await.expect("failed to send port");
+        let inner = req.into_inner();
+        let serve_addr = ServeAddr::new(inner.port as u16);
+        self.tx
+            .send((inner.id, serve_addr))
+            .await
+            .expect("failed to send port");
         Ok(Response::new(Null {}))
     }
 }

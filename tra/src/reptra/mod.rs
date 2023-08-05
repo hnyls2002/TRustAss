@@ -28,6 +28,7 @@ pub use peer::{
 };
 
 pub struct Reptra {
+    pub id: i32,
     pub serve_addr: ServeAddr,
     pub service_handle: ServiceHandle,
     pub replica: Arc<Replica>,
@@ -53,6 +54,7 @@ impl Reptra {
                 .await
         });
         Self {
+            id,
             serve_addr,
             service_handle,
             replica,
@@ -64,6 +66,7 @@ impl Reptra {
         let channel = channel_connect(centra_addr).await?;
         let mut port_sender = PortCollectClient::new(channel);
         let msg = PortNumber {
+            id: self.id,
             port: self.serve_addr.port() as i32,
         };
         port_sender

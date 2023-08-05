@@ -58,8 +58,10 @@ async fn main() {
                             path: path.clone(),
                         });
                         info!(
-                            "sync : port1({}) -> port2({}), path = \"{}\"",
+                            "sync : replica{}({}) -> replica{}({}), path = \"{}\"",
+                            id1,
                             centra.get_addr(id1).port(),
+                            id2,
                             centra.get_addr(id2).port(),
                             path
                         );

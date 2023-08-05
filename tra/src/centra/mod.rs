@@ -6,6 +6,8 @@ pub mod controller {
     include!("../protos/controller.rs");
 }
 
+use std::collections::HashMap;
+
 use crate::{
     config::{MpscReceiver, MpscSender, ServiceHandle},
     machine::ServeAddr,
@@ -29,9 +31,9 @@ pub use port_collect::PortCollector;
 
 pub struct Centra {
     pub serve_addr: ServeAddr,
-    pub addr_tx: MpscSender<ServeAddr>,
-    pub addr_rx: MpscReceiver<ServeAddr>,
-    pub reptra_addrs: Vec<ServeAddr>,
+    pub addr_tx: MpscSender<(i32, ServeAddr)>,
+    pub addr_rx: MpscReceiver<(i32, ServeAddr)>,
+    pub id_map: HashMap<i32, ServeAddr>,
     pub service_handle: Option<ServiceHandle>,
 }
 
@@ -42,7 +44,7 @@ impl Centra {
             serve_addr: serve_addr.clone(),
             addr_tx: tx,
             addr_rx: rx,
-            reptra_addrs: Vec::new(),
+            id_map: HashMap::new(),
             service_handle: None,
         }
     }
@@ -70,9 +72,9 @@ impl Centra {
 
     pub async fn collect_ports(&mut self, rep_num: usize) {
         for _ in 0..rep_num {
-            if let Some(serve_addr) = self.addr_rx.recv().await {
-                self.reptra_addrs.push(serve_addr);
-                info!("Port {} is collected.", serve_addr.port());
+            if let Some((id, serve_addr)) = self.addr_rx.recv().await {
+                self.id_map.insert(id, serve_addr);
+                info!("id : {}, port : {} collected", id, serve_addr.port());
             } else {
                 panic!("The port collect channel is closed unexpectedly.");
             }
@@ -80,6 +82,6 @@ impl Centra {
     }
 
     pub fn get_addr(&self, id: i32) -> ServeAddr {
-        self.reptra_addrs[id as usize - 1].clone()
+        self.id_map[&id].clone()
     }
 }
