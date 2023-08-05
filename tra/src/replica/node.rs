@@ -8,7 +8,7 @@ use tokio::sync::RwLock;
 use crate::{replica::RepMeta, unwrap_res, MyResult};
 
 use super::{
-    file_watcher::FileWatcher,
+    file_watcher::WatchIfc,
     timestamp::{SingletonTime, VectorTime},
     ModOption, ModType,
 };
@@ -20,12 +20,12 @@ pub enum NodeStatus {
 }
 
 pub struct NodeData {
-    pub(crate) children: HashMap<String, Arc<Node>>,
-    pub(crate) mod_time: VectorTime,
-    pub(crate) sync_time: VectorTime,
-    pub(crate) create_time: SingletonTime,
-    pub(crate) status: NodeStatus,
-    pub(crate) wd: Option<WatchDescriptor>,
+    pub children: HashMap<String, Arc<Node>>,
+    pub mod_time: VectorTime,
+    pub sync_time: VectorTime,
+    pub create_time: SingletonTime,
+    pub status: NodeStatus,
+    pub wd: Option<WatchDescriptor>,
 }
 
 pub struct Node {
@@ -42,7 +42,7 @@ impl Node {
     }
 
     // the replica's bedrock
-    pub fn new_trees_collect(rep_meta: Arc<RepMeta>, file_watcher: &mut FileWatcher) -> Self {
+    pub async fn new_base_node(rep_meta: Arc<RepMeta>, mut watch_ifc: WatchIfc) -> Self {
         let path = rep_meta.prefix.clone();
         let data = NodeData {
             children: HashMap::new(),
@@ -50,7 +50,7 @@ impl Node {
             sync_time: VectorTime::new_empty(rep_meta.id),
             create_time: SingletonTime::default(),
             status: NodeStatus::Exist,
-            wd: file_watcher.add_watch(&path),
+            wd: watch_ifc.add_watch(&path).await,
         };
         Self {
             path: Box::new(path),
@@ -61,11 +61,11 @@ impl Node {
     }
 
     // locally create a file
-    pub fn new_from_create(
+    pub async fn new_from_create(
         path: &PathBuf,
         time: usize,
         rep_meta: Arc<RepMeta>,
-        file_watcher: &mut FileWatcher,
+        mut watch_ifc: WatchIfc,
     ) -> Self {
         let create_time = SingletonTime::new(rep_meta.id, time);
         let data = NodeData {
@@ -74,7 +74,7 @@ impl Node {
             sync_time: VectorTime::from_singleton_time(&create_time),
             create_time,
             status: NodeStatus::Exist,
-            wd: file_watcher.add_watch(path),
+            wd: watch_ifc.add_watch(path).await,
         };
         Node {
             path: Box::new(path.clone()),
@@ -87,21 +87,14 @@ impl Node {
 
 // direct operation on node and node's data
 impl Node {
-    pub async fn create(
-        &self,
-        name: &String,
-        time: usize,
-        file_watcher: &mut FileWatcher,
-    ) -> MyResult<()> {
+    pub async fn create(&self, name: &String, time: usize, watch_ifc: WatchIfc) -> MyResult<()> {
         let child_path = self.path.join(name);
-        let child = Arc::new(Node::new_from_create(
-            &child_path,
-            time,
-            self.rep_meta.clone(),
-            file_watcher,
-        ));
+        let child = Arc::new(
+            Node::new_from_create(&child_path, time, self.rep_meta.clone(), watch_ifc.clone())
+                .await,
+        );
         if child.is_dir {
-            let res = child.scan_all(time, file_watcher).await;
+            let res = child.scan_all(time, watch_ifc).await;
             unwrap_res!(res);
         }
         let mut parent_data = self.data.write().await;
@@ -119,7 +112,7 @@ impl Node {
 
     // just one file, actually removed in file system
     // and the watch descriptor is automatically removed
-    pub async fn delete_rm(&self, time: usize, file_watcher: &mut FileWatcher) -> MyResult<()> {
+    pub async fn delete_rm(&self, time: usize, mut watch_ifc: WatchIfc) -> MyResult<()> {
         let mut data = self.data.write().await;
         // the file system cannot delete a directory that is not empty
         for (_, child) in data.children.iter() {
@@ -133,7 +126,7 @@ impl Node {
         data.status = NodeStatus::Deleted;
         if data.wd.is_some() {
             let wd = data.wd.take().unwrap();
-            if let Ok(_) = file_watcher.remove_watch(&self.path, &wd) {
+            if let Ok(_) = watch_ifc.remove_watch(&self.path, &wd).await {
                 return Err(
                     "Delet Error : Watcher is not automatically removed when \"rm\" a file".into(),
                 );
@@ -147,24 +140,20 @@ impl Node {
     // we should manually remove the watcher descriptor here
     // as the file is moved to another space
     #[async_recursion]
-    pub async fn delete_moved_from(
-        &self,
-        time: usize,
-        file_watcher: &mut FileWatcher,
-    ) -> MyResult<()> {
+    pub async fn delete_moved_from(&self, time: usize, mut watch_ifc: WatchIfc) -> MyResult<()> {
         let mut data = self.data.write().await;
         if data.status == NodeStatus::Deleted {
             return Ok(());
         }
         for (_, child) in data.children.iter() {
-            unwrap_res!(child.delete_moved_from(time, file_watcher).await);
+            unwrap_res!(child.delete_moved_from(time, watch_ifc.clone()).await);
         }
         data.mod_time.clear();
         data.sync_time.update_singleton(time);
         data.status = NodeStatus::Deleted;
         if data.wd.is_some() {
             let wd = data.wd.take().unwrap();
-            file_watcher.remove_watch(&self.path, &wd)?;
+            watch_ifc.remove_watch(&self.path, &wd).await?;
         } else if self.is_dir {
             return Err("Delete Error : No Watch Descriptor".into());
         }
@@ -175,20 +164,23 @@ impl Node {
 impl Node {
     // scan all the files (which are not detected before) in the directory
     #[async_recursion]
-    pub async fn scan_all(&self, init_time: usize, file_watcher: &mut FileWatcher) -> MyResult<()> {
+    pub async fn scan_all(&self, init_time: usize, watch_ifc: WatchIfc) -> MyResult<()> {
         let static_path = self.path.as_path();
         let mut sub_files = unwrap_res!(tokio::fs::read_dir(static_path)
             .await
             .or(Err("Scan All Error : read dir error")));
         while let Some(sub_file) = sub_files.next_entry().await.unwrap() {
-            let child = Arc::new(Node::new_from_create(
-                &sub_file.path(),
-                init_time,
-                self.rep_meta.clone(),
-                file_watcher,
-            ));
+            let child = Arc::new(
+                Node::new_from_create(
+                    &sub_file.path(),
+                    init_time,
+                    self.rep_meta.clone(),
+                    watch_ifc.clone(),
+                )
+                .await,
+            );
             if child.is_dir {
-                child.scan_all(init_time, file_watcher).await?;
+                child.scan_all(init_time, watch_ifc.clone()).await?;
             }
             self.data
                 .write()
@@ -205,7 +197,7 @@ impl Node {
         path: &PathBuf,
         mut walk: Vec<String>,
         op: ModOption,
-        file_watcher: &mut FileWatcher,
+        watch_ifc: WatchIfc,
     ) -> MyResult<()> {
         // not the target node yet
         if !walk.is_empty() {
@@ -216,14 +208,14 @@ impl Node {
                 .get(&child_name)
                 .ok_or("Event Handling Error : Node not found along the path")?;
             child
-                .handle_event(path, walk, op.clone(), file_watcher)
+                .handle_event(path, walk, op.clone(), watch_ifc)
                 .await?;
             cur_data.mod_time.update_singleton(op.time);
         } else {
             match op.ty {
                 ModType::Create | ModType::MovedTo => {
                     // create method : from parent node handling it
-                    self.create(&op.name, op.time, file_watcher).await?;
+                    self.create(&op.name, op.time, watch_ifc).await?;
                 }
                 ModType::Delete => {
                     let mut data = self.data.write().await;
@@ -231,7 +223,7 @@ impl Node {
                         .children
                         .get(&op.name)
                         .ok_or("Delete Error : Node not found when handling Delete Event")?;
-                    deleted.delete_rm(op.time, file_watcher).await?;
+                    deleted.delete_rm(op.time, watch_ifc).await?;
                     data.mod_time.update_singleton(op.time);
                 }
                 ModType::Modify => {
@@ -249,7 +241,7 @@ impl Node {
                         .children
                         .get(&op.name)
                         .ok_or("Delete Error : Node not found when handling MovedTo event")?;
-                    deleted.delete_moved_from(op.time, file_watcher).await?;
+                    deleted.delete_moved_from(op.time, watch_ifc).await?;
                     data.mod_time.update_singleton(op.time);
                 }
             };

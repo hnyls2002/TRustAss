@@ -7,7 +7,7 @@ use super::{
 
 impl Replica {
     pub async fn tree(&self, show_detail: bool) {
-        self.trees_collect.tree(show_detail, Vec::new()).await;
+        self.base_node.tree(show_detail, Vec::new()).await;
     }
 }
 

@@ -7,13 +7,14 @@ pub mod peer {
 
 use crate::{
     centra::{GreeterClient, HelloRequest, PortCollectClient, PortNumber},
-    config::ServiceHandle,
+    config::{ServiceHandle, CHANNEL_BUFFER_SIZE},
     info,
     machine::{channel_connect, get_listener, ServeAddr},
-    replica::Replica,
+    replica::{file_watcher::FileWatcher, Replica},
     MyResult,
 };
 
+use inotify::EventMask;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 use tonic::{transport::Server, Request};
@@ -26,25 +27,22 @@ pub use peer::{
 };
 
 pub struct Reptra {
-    pub serve_addr: Option<ServeAddr>,
-    pub service_handle: Option<ServiceHandle>,
+    pub serve_addr: ServeAddr,
+    pub service_handle: ServiceHandle,
+    pub replica: Arc<Replica>,
+    pub file_watcher: FileWatcher,
 }
 
 impl Reptra {
-    pub fn new() -> Self {
-        Self {
-            serve_addr: None,
-            service_handle: None,
-        }
-    }
-
-    pub async fn start_service(&mut self, id: i32) {
+    pub async fn new_start_service(id: i32) -> Self {
         let (serve_addr, incoming) = get_listener().await;
-        let mut replica = Replica::new(id);
-        replica.init_file_trees().await.unwrap();
+        let file_watcher = FileWatcher::new();
+        let watch_ifc = file_watcher.get_ifc();
+        let replica = Arc::new(Replica::new(id, watch_ifc).await);
+        replica.init_all().await.unwrap();
         replica.tree(false).await;
         let peer_server = PeerServer {
-            replica: Arc::new(replica),
+            replica: replica.clone(),
             channels: Arc::new(RwLock::new(HashMap::new())),
         };
         let service_handle = tokio::spawn(async {
@@ -53,15 +51,19 @@ impl Reptra {
                 .serve_with_incoming(incoming)
                 .await
         });
-        self.serve_addr = Some(serve_addr);
-        self.service_handle = Some(service_handle);
+        Self {
+            serve_addr,
+            service_handle,
+            replica,
+            file_watcher,
+        }
     }
 
     pub async fn send_port(&self, centra_addr: &ServeAddr) -> MyResult<()> {
         let channel = channel_connect(centra_addr).await?;
         let mut port_sender = PortCollectClient::new(channel);
         let msg = PortNumber {
-            port: self.serve_addr.unwrap().port() as i32,
+            port: self.serve_addr.port() as i32,
         };
         port_sender
             .send_port(Request::new(msg))
@@ -84,4 +86,25 @@ pub async fn reptra_greet_test(id: i32, centra_addr: &ServeAddr) -> MyResult<()>
     }
     info!("greet test passed");
     Ok(())
+}
+
+// handling the watching stuff
+impl Reptra {
+    pub async fn watching(&mut self) -> ! {
+        let mut buffer = [0; CHANNEL_BUFFER_SIZE];
+        loop {
+            let events = self
+                .file_watcher
+                .inotify
+                .read_events_blocking(buffer.as_mut())
+                .unwrap();
+            for event in events {
+                if event.mask != EventMask::IGNORED {
+                    self.file_watcher.display_event(&event).await;
+                    self.replica.handle_event(&event).await.unwrap();
+                }
+            }
+            self.replica.tree(true).await;
+        }
+    }
 }
