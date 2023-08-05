@@ -10,7 +10,7 @@ message DiffSource {
 message Patch { bytes delta = 1; }
 
 message SyncMsg {
-  int32 addr = 1;
+  int32 port = 1;
   string path = 2;
 }
 

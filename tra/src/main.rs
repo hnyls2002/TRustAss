@@ -7,14 +7,12 @@ pub mod reptra;
 
 use centra::Centra;
 use config::{BASE_REP_NUM, TRA_PORT};
-use machine::ServeAddr;
-use reptra::{peer_server, reptra_greet_test, Reptra};
+use machine::{channel_connect, ServeAddr};
+use replica::checker::check_legal;
+use reptra::{reptra_greet_test, Reptra, RsyncClient, SyncMsg};
 
 pub use config::MyResult;
-
-async fn demo() {
-    peer_server::demo();
-}
+use tonic::Request;
 
 #[tokio::main]
 async fn main() {
@@ -38,7 +36,42 @@ async fn main() {
 
     centra.collect_ports(BASE_REP_NUM).await;
 
-    for t in thread_list {
-        t.join().unwrap();
+    let mut rl = rustyline::DefaultEditor::new().unwrap();
+    loop {
+        let readline = rl.readline(">> ");
+        match readline {
+            Ok(line) => {
+                let args = line.trim().split_whitespace().collect::<Vec<&str>>();
+                if args.len() == 4 && args[0] == "sync" {
+                    let id1: i32 = args[1].parse().unwrap();
+                    let id2: i32 = args[2].parse().unwrap();
+                    let path = args[3].to_string();
+                    if id1 as usize <= BASE_REP_NUM
+                        && id2 as usize <= BASE_REP_NUM
+                        && check_legal(&path)
+                    {
+                        let addr2 = centra.get_addr(id2);
+                        let channel = channel_connect(&addr2).await.unwrap();
+                        let mut client = RsyncClient::new(channel);
+                        let request = Request::new(SyncMsg {
+                            port: centra.get_addr(id1).port() as i32,
+                            path: path.clone(),
+                        });
+                        info!(
+                            "sync : port1({}) -> port2({}), path = \"{}\"",
+                            centra.get_addr(id1).port(),
+                            centra.get_addr(id2).port(),
+                            path
+                        );
+                        client.request_sync(request).await.unwrap();
+                    }
+                }
+            }
+            Err(_) => panic!("readline error"),
+        }
     }
+
+    // for t in thread_list {
+    //     t.join().unwrap();
+    // }
 }

@@ -78,4 +78,8 @@ impl Centra {
             }
         }
     }
+
+    pub fn get_addr(&self, id: i32) -> ServeAddr {
+        self.reptra_addrs[id as usize - 1].clone()
+    }
 }

@@ -1,4 +1,5 @@
 pub mod peer_server;
+pub mod rsync;
 
 pub mod peer {
     #![allow(non_snake_case)]
@@ -15,11 +16,11 @@ use crate::{
 };
 
 use inotify::EventMask;
+use peer_server::PeerServer;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 use tonic::{transport::Server, Request};
 
-use self::peer_server::PeerServer;
 pub use peer::{
     rsync_client::RsyncClient,
     rsync_server::{Rsync, RsyncServer},

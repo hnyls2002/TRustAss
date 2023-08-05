@@ -58,7 +58,7 @@ impl Replica {
     pub async fn new(id: i32, watch_ifc: WatchIfc) -> Self {
         let rep_meta = Arc::new(RepMeta::new(id));
         if !rep_meta.check_exist(&rep_meta.prefix) {
-            std::fs::create_dir(&rep_meta.prefix).unwrap();
+            tokio::fs::create_dir(&rep_meta.prefix).await.unwrap();
         } else if !rep_meta.check_is_dir(&rep_meta.prefix) {
             panic!("The root path is not a directory!");
         }
