@@ -12,6 +12,7 @@ use replica::checker::check_legal;
 use reptra::{reptra_greet_test, Reptra, RsyncClient, SyncMsg};
 
 pub use config::MyResult;
+use rustyline::error::ReadlineError;
 use tonic::Request;
 
 #[tokio::main]
@@ -24,7 +25,9 @@ async fn main() {
         thread_list.push(std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let mut reptra = Reptra::new_start_service(id as i32).await;
+                let mut reptra = Reptra::new_start_service(id as i32)
+                    .await
+                    .expect("failed to start");
                 reptra.send_port(&ServeAddr::new(TRA_PORT)).await.unwrap();
                 reptra_greet_test(id as i32, &ServeAddr::new(TRA_PORT))
                     .await
@@ -38,7 +41,7 @@ async fn main() {
 
     let mut rl = rustyline::DefaultEditor::new().unwrap();
     loop {
-        let readline = rl.readline(">> ");
+        let readline = rl.readline("\x1b[34m(tra) ❯ \x1b[0m");
         match readline {
             Ok(line) => {
                 let args = line.trim().split_whitespace().collect::<Vec<&str>>();
@@ -69,7 +72,11 @@ async fn main() {
                     }
                 }
             }
-            Err(_) => panic!("readline error"),
+            Err(ReadlineError::Interrupted) => {
+                info!("Shutting down the command line interface ...");
+                break;
+            }
+            Err(_) => panic!("Invalid input"),
         }
     }
 

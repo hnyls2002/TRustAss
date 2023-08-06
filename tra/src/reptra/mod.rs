@@ -36,12 +36,12 @@ pub struct Reptra {
 }
 
 impl Reptra {
-    pub async fn new_start_service(id: i32) -> Self {
-        let (serve_addr, incoming) = get_listener().await;
+    pub async fn new_start_service(id: i32) -> MyResult<Self> {
+        let (serve_addr, incoming) = get_listener().await?;
         let file_watcher = FileWatcher::new();
         let watch_ifc = file_watcher.get_ifc();
         let replica = Arc::new(Replica::new(id, watch_ifc).await);
-        replica.init_all().await.unwrap();
+        replica.init_all().await?;
         replica.tree(false).await;
         let peer_server = PeerServer {
             replica: replica.clone(),
@@ -53,13 +53,13 @@ impl Reptra {
                 .serve_with_incoming(incoming)
                 .await
         });
-        Self {
+        Ok(Self {
             id,
             serve_addr,
             service_handle,
             replica,
             file_watcher,
-        }
+        })
     }
 
     pub async fn send_port(&self, centra_addr: &ServeAddr) -> MyResult<()> {

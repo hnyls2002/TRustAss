@@ -27,15 +27,18 @@ impl ServeAddr {
     }
 }
 
-pub async fn get_listener() -> (ServeAddr, TcpIncoming) {
+pub async fn get_listener() -> MyResult<(ServeAddr, TcpIncoming)> {
     let mut rng = rand::thread_rng();
     loop {
         let port = rng.gen_range(49152..=65535);
         let listener = StdListener::bind(format!("[::]:{}", port));
         if let Ok(listener) = listener {
+            listener
+                .set_nonblocking(true)
+                .or(Err("failed to set nonblocking"))?;
             let listener = tokio::net::TcpListener::from_std(listener).unwrap();
             let incoming = TcpIncoming::from_listener(listener, true, None).unwrap();
-            break (ServeAddr::new(port), incoming);
+            break Ok((ServeAddr::new(port), incoming));
         }
     }
 }
