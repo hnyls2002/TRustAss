@@ -7,7 +7,7 @@ use super::Node;
 // recursive methods
 impl Node {
     #[async_recursion]
-    pub async fn handle_sync() -> MyResult<()> {
+    pub async fn handle_sync(&self, mut walk: Vec<String>) -> MyResult<()> {
         Ok(())
     }
 }

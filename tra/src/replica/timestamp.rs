@@ -16,6 +16,10 @@ impl SingletonTime {
     pub fn new(id: i32, time: i32) -> Self {
         Self { id, time }
     }
+
+    pub fn extract_time(&self) -> i32 {
+        self.time
+    }
 }
 
 impl VectorTime {
@@ -33,6 +37,10 @@ impl VectorTime {
             id: create_time.id,
             times,
         }
+    }
+
+    pub fn extract_hashmap(&self) -> HashMap<i32, i32> {
+        self.times.clone()
     }
 
     pub fn clear(&mut self) {

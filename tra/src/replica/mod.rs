@@ -124,11 +124,14 @@ impl Replica {
     pub async fn handle_query(&self, path: impl AsRef<Path>) -> MyResult<QueryRes> {
         let path = PathBuf::from(path.as_ref());
         let walk = self.rep_meta.decompose(&path);
-        self.base_node.handle_query(&path, walk).await
+        self.base_node.handle_query(walk).await
     }
 
-    pub fn handle_sync(&mut self) -> MyResult<()> {
-        todo!()
+    pub async fn handle_sync(&mut self, path: impl AsRef<Path>) -> MyResult<()> {
+        let path = PathBuf::from(path.as_ref());
+        let walk = self.rep_meta.decompose(&path);
+        self.base_node.handle_sync(walk).await?;
+        Ok(())
     }
 
     pub fn clean(&mut self) {
