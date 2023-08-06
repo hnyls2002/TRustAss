@@ -2,21 +2,33 @@ syntax = "proto3";
 
 package peer;
 
-message DiffSource {
+message FetchPatchReq {
   string path = 1;
   bytes sig = 2;
 }
 
 message Patch { bytes delta = 1; }
 
-message SyncMsg {
+// ask the callee machine to fetch patch from machine(port)
+message SyncReq {
   int32 port = 1;
   string path = 2;
 }
 
-message ReqRst { bool success = 1; }
+message BoolResult { bool success = 1; }
+
+message QueryReq { string path = 1; }
+
+message QueryRes {
+  int32 id = 1;
+  bool deleted = 2;
+  int32 create_time = 3;
+  map<int32, int32> mod_time = 4;
+  map<int32, int32> sync_time = 5;
+}
 
 service Rsync {
-  rpc FetchPatch(DiffSource) returns (Patch);
-  rpc RequestSync(SyncMsg) returns (ReqRst);
+  rpc FetchPatch(FetchPatchReq) returns (Patch);
+  rpc RequestSync(SyncReq) returns (BoolResult);
+  rpc Query(QueryReq) returns (QueryRes);
 }

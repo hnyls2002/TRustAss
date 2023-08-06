@@ -3,7 +3,9 @@ use tonic::{Request, Response, Status};
 
 use crate::machine::ServeAddr;
 
-use super::{peer_server::PeerServer, DiffSource, Patch, ReqRst, Rsync, SyncMsg};
+use super::{
+    peer_server::PeerServer, BoolResult, FetchPatchReq, Patch, QueryReq, QueryRes, Rsync, SyncReq,
+};
 
 pub const SIG_OPTION: SignatureOptions = SignatureOptions {
     block_size: 1024,
@@ -14,7 +16,7 @@ pub const SIG_OPTION: SignatureOptions = SignatureOptions {
 impl Rsync for PeerServer {
     async fn fetch_patch(
         &self,
-        diff_source: Request<DiffSource>,
+        diff_source: Request<FetchPatchReq>,
     ) -> Result<Response<Patch>, Status> {
         let diff_source = diff_source.into_inner();
         let path = diff_source.path;
@@ -33,13 +35,27 @@ impl Rsync for PeerServer {
         Ok(Response::new(Patch { delta }))
     }
 
-    async fn request_sync(&self, sync_msg: Request<SyncMsg>) -> Result<Response<ReqRst>, Status> {
+    async fn request_sync(
+        &self,
+        sync_msg: Request<SyncReq>,
+    ) -> Result<Response<BoolResult>, Status> {
         let sync_msg = sync_msg.into_inner();
         let path = sync_msg.path;
         let target_addr = ServeAddr::new(sync_msg.port as u16);
         self.rsync_fetch(&path, &target_addr)
             .await
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
-        Ok(Response::new(ReqRst { success: true }))
+        Ok(Response::new(BoolResult { success: true }))
+    }
+
+    async fn query(&self, query_req: Request<QueryReq>) -> Result<Response<QueryRes>, Status> {
+        let inner = query_req.into_inner();
+        let path = inner.path;
+        let res = self
+            .replica
+            .handle_query(path)
+            .await
+            .map_err(|e| Status::invalid_argument(e.as_str()))?;
+        Ok(Response::new(res))
     }
 }

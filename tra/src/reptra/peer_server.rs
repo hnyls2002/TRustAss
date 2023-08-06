@@ -9,10 +9,11 @@ use crate::{
     info,
     machine::{channel_connect, ServeAddr},
     replica::Replica,
+    reptra::FetchPatchReq,
     MyResult,
 };
 
-use super::{rsync::SIG_OPTION, DiffSource, RsyncClient};
+use super::{rsync::SIG_OPTION, RsyncClient};
 
 pub struct PeerServer {
     pub replica: Arc<Replica>,
@@ -33,7 +34,7 @@ impl PeerServer {
     pub async fn rsync_fetch(&self, path: &String, target_addr: &ServeAddr) -> MyResult<()> {
         let data = self.replica.rep_meta.read_bytes(path).await?;
         let sig = Signature::calculate(&data, SIG_OPTION);
-        let request = DiffSource {
+        let request = FetchPatchReq {
             path: path.clone(),
             sig: Vec::from(sig.serialized()),
         };

@@ -1,15 +1,18 @@
-pub mod checker;
 pub mod file_watcher;
 pub mod node;
 pub mod rep_meta;
 pub mod timestamp;
 pub mod tree;
 
-use std::{ffi::OsStr, sync::Arc};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use inotify::{Event, EventMask};
 
-use crate::{unwrap_res, MyResult};
+use crate::{reptra::QueryRes, unwrap_res, MyResult};
 
 use self::{file_watcher::WatchIfc, node::Node, rep_meta::RepMeta};
 
@@ -87,18 +90,6 @@ impl Replica {
             .update_singleton(init_counter);
         Ok(())
     }
-
-    pub fn sync_dir(&mut self) -> MyResult<()> {
-        todo!()
-    }
-
-    pub fn sync_file(&mut self) -> MyResult<()> {
-        todo!()
-    }
-
-    pub fn clear() {
-        todo!();
-    }
 }
 
 impl Replica {
@@ -128,5 +119,19 @@ impl Replica {
             .await;
         unwrap_res!(res);
         Ok(())
+    }
+
+    pub async fn handle_query(&self, path: impl AsRef<Path>) -> MyResult<QueryRes> {
+        let path = PathBuf::from(path.as_ref());
+        let walk = self.rep_meta.decompose(&path);
+        self.base_node.handle_query(&path, walk).await
+    }
+
+    pub fn handle_sync(&mut self) -> MyResult<()> {
+        todo!()
+    }
+
+    pub fn clean(&mut self) {
+        todo!()
     }
 }

@@ -1,4 +1,5 @@
 pub mod modification;
+pub mod query;
 pub mod synchronization;
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};

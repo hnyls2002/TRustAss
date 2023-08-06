@@ -1,4 +1,5 @@
 pub mod centra;
+pub mod checker;
 pub mod config;
 pub mod debugger;
 pub mod machine;
@@ -6,14 +7,16 @@ pub mod replica;
 pub mod reptra;
 
 use centra::Centra;
+use checker::check_legal;
 use config::{BASE_REP_NUM, TRA_PORT};
 use machine::{channel_connect, ServeAddr};
-use replica::checker::check_legal;
-use reptra::{reptra_greet_test, Reptra, RsyncClient, SyncMsg};
+use reptra::{reptra_greet_test, Reptra, RsyncClient};
 
 pub use config::MyResult;
 use rustyline::error::ReadlineError;
 use tonic::Request;
+
+use crate::reptra::SyncReq;
 
 #[tokio::main]
 async fn main() {
@@ -56,7 +59,7 @@ async fn main() {
                         let addr2 = centra.get_addr(id2);
                         let channel = channel_connect(&addr2).await.unwrap();
                         let mut client = RsyncClient::new(channel);
-                        let request = Request::new(SyncMsg {
+                        let request = Request::new(SyncReq {
                             port: centra.get_addr(id1).port() as i32,
                             path: path.clone(),
                         });

@@ -24,7 +24,7 @@ use tonic::{transport::Server, Request};
 pub use peer::{
     rsync_client::RsyncClient,
     rsync_server::{Rsync, RsyncServer},
-    DiffSource, Patch, ReqRst, SyncMsg,
+    BoolResult, FetchPatchReq, Patch, QueryReq, QueryRes, SyncReq,
 };
 
 pub struct Reptra {
