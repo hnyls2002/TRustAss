@@ -1,23 +1,14 @@
-use std::path::Path;
-
 use fast_rsync::{diff, Signature, SignatureOptions};
 use tonic::{Request, Response, Status};
 
-use crate::{machine::ServeAddr, MyResult};
+use crate::machine::ServeAddr;
 
 use super::{peer_server::PeerServer, DiffSource, Patch, ReqRst, Rsync, SyncMsg};
 
 pub const SIG_OPTION: SignatureOptions = SignatureOptions {
-    block_size: 4096,
-    crypto_hash_size: 64,
+    block_size: 1024,
+    crypto_hash_size: 16,
 };
-
-pub async fn read_bytes(path: impl AsRef<Path>) -> MyResult<Vec<u8>> {
-    match tokio::fs::read(path).await {
-        Ok(bytes) => Ok(bytes),
-        Err(_) => Err("read bytes failed".into()),
-    }
-}
 
 #[tonic::async_trait]
 impl Rsync for PeerServer {
@@ -31,9 +22,12 @@ impl Rsync for PeerServer {
             "signature deserialized failed",
         )))?;
         let index_sig = sig.index();
-        let data = read_bytes(&path)
+        let data = self
+            .replica
+            .rep_meta
+            .read_bytes(&path)
             .await
-            .or(Err(Status::invalid_argument("read bytes failed")))?;
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
         let mut delta: Vec<u8> = Vec::new();
         diff(&index_sig, &data, &mut delta).or(Err(Status::invalid_argument("diff failed")))?;
         Ok(Response::new(Patch { delta }))
@@ -45,7 +39,7 @@ impl Rsync for PeerServer {
         let target_addr = ServeAddr::new(sync_msg.port as u16);
         self.rsync_fetch(&path, &target_addr)
             .await
-            .or(Err(Status::invalid_argument("rsync fetch failed")))?;
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
         Ok(Response::new(ReqRst { success: true }))
     }
 }

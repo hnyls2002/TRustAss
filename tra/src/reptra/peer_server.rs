@@ -6,16 +6,13 @@ use tokio::sync::RwLock;
 
 use crate::{
     config::RpcChannel,
-    debug,
+    info,
     machine::{channel_connect, ServeAddr},
     replica::Replica,
     MyResult,
 };
 
-use super::{
-    rsync::{read_bytes, SIG_OPTION},
-    DiffSource, RsyncClient,
-};
+use super::{rsync::SIG_OPTION, DiffSource, RsyncClient};
 
 pub struct PeerServer {
     pub replica: Arc<Replica>,
@@ -34,7 +31,7 @@ impl PeerServer {
     }
 
     pub async fn rsync_fetch(&self, path: &String, target_addr: &ServeAddr) -> MyResult<()> {
-        let data = read_bytes(path).await?;
+        let data = self.replica.rep_meta.read_bytes(path).await?;
         let sig = Signature::calculate(&data, SIG_OPTION);
         let request = DiffSource {
             path: path.clone(),
@@ -49,10 +46,8 @@ impl PeerServer {
         let delta = patch.into_inner().delta;
         let mut out: Vec<u8> = Vec::new();
         apply(&data, &delta, &mut out).or(Err("apply failed"))?;
-        debug!(
-            "rsync fetch : {}",
-            std::str::from_utf8(out.as_slice()).unwrap()
-        );
+        info!("The size of data is {}", data.len());
+        info!("The size of patch is {}", delta.len());
         Ok(())
     }
 }

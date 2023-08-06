@@ -1,8 +1,8 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tokio::sync::RwLock;
 
-use crate::config::TMP_PATH;
+use crate::{config::TMP_PATH, MyResult};
 
 use super::node::NodeStatus;
 
@@ -73,5 +73,19 @@ impl RepMeta {
         let mut now = self.counter.write().await;
         *now += 1;
         *now
+    }
+
+    pub async fn read_bytes(&self, path: impl AsRef<Path>) -> MyResult<Vec<u8>> {
+        let file_entry = self
+            .to_absolute(&path.as_ref().to_path_buf())
+            .canonicalize();
+        if let Ok(path_exist) = file_entry {
+            match tokio::fs::read(path_exist).await {
+                Ok(bytes) => return Ok(bytes),
+                Err(_) => Err("read bytes failed".into()),
+            }
+        } else {
+            Ok(Vec::new())
+        }
     }
 }
