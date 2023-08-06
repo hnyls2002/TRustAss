@@ -52,7 +52,7 @@ impl ModType {
 #[derive(Clone)]
 pub struct ModOption {
     pub ty: ModType,
-    pub time: usize,
+    pub time: i32,
     pub name: String,
     pub is_dir: bool,
 }

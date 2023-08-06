@@ -17,7 +17,7 @@ lazy_static! {
 pub struct FileWatcher {
     pub inotify: Inotify,
     pub wd_map: Arc<RwLock<HashMap<WatchDescriptor, PathBuf>>>,
-    pub cnt: usize,
+    pub cnt: i32,
 }
 
 #[derive(Clone)]

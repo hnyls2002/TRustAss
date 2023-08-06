@@ -66,7 +66,7 @@ impl Node {
 impl Node {
     // scan all the files (which are not detected before) in the directory
     #[async_recursion]
-    pub async fn scan_all(&self, init_time: usize, watch_ifc: WatchIfc) -> MyResult<()> {
+    pub async fn scan_all(&self, init_time: i32, watch_ifc: WatchIfc) -> MyResult<()> {
         let static_path = self.path.as_path();
         let mut sub_files = unwrap_res!(tokio::fs::read_dir(static_path)
             .await

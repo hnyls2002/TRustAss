@@ -9,7 +9,7 @@ use super::node::NodeStatus;
 pub struct RepMeta {
     pub(super) id: i32,
     pub(super) prefix: PathBuf,
-    pub(super) counter: RwLock<usize>,
+    pub(super) counter: RwLock<i32>,
 }
 
 impl RepMeta {
@@ -65,11 +65,11 @@ impl RepMeta {
         ret
     }
 
-    pub async fn read_counter(&self) -> usize {
+    pub async fn read_counter(&self) -> i32 {
         self.counter.read().await.clone()
     }
 
-    pub async fn add_counter(&self) -> usize {
+    pub async fn add_counter(&self) -> i32 {
         let mut now = self.counter.write().await;
         *now += 1;
         *now

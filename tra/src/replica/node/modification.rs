@@ -19,7 +19,7 @@ use super::{Node, NodeData, NodeStatus};
 impl Node {
     pub async fn new_from_create(
         path: &PathBuf,
-        time: usize,
+        time: i32,
         rep_meta: Arc<RepMeta>,
         mut watch_ifc: WatchIfc,
     ) -> Self {
@@ -43,7 +43,7 @@ impl Node {
 
 // direct operation on node and node's data
 impl Node {
-    pub async fn create(&self, name: &String, time: usize, watch_ifc: WatchIfc) -> MyResult<()> {
+    pub async fn create(&self, name: &String, time: i32, watch_ifc: WatchIfc) -> MyResult<()> {
         let child_path = self.path.join(name);
         let child = Arc::new(
             Node::new_from_create(&child_path, time, self.rep_meta.clone(), watch_ifc.clone())
@@ -59,7 +59,7 @@ impl Node {
         Ok(())
     }
 
-    pub async fn modify(&self, time: usize) -> MyResult<()> {
+    pub async fn modify(&self, time: i32) -> MyResult<()> {
         let mut data = self.data.write().await;
         data.mod_time.update_singleton(time);
         data.sync_time.update_singleton(time);
@@ -68,7 +68,7 @@ impl Node {
 
     // just one file, actually removed in file system
     // and the watch descriptor is automatically removed
-    pub async fn delete_rm(&self, time: usize, mut watch_ifc: WatchIfc) -> MyResult<()> {
+    pub async fn delete_rm(&self, time: i32, mut watch_ifc: WatchIfc) -> MyResult<()> {
         let mut data = self.data.write().await;
         // the file system cannot delete a directory that is not empty
         for (_, child) in data.children.iter() {
@@ -96,7 +96,7 @@ impl Node {
     // we should manually remove the watcher descriptor here
     // as the file is moved to another space
     #[async_recursion]
-    pub async fn delete_moved_from(&self, time: usize, mut watch_ifc: WatchIfc) -> MyResult<()> {
+    pub async fn delete_moved_from(&self, time: i32, mut watch_ifc: WatchIfc) -> MyResult<()> {
         let mut data = self.data.write().await;
         if data.status == NodeStatus::Deleted {
             return Ok(());

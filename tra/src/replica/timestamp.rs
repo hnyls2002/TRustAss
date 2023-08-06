@@ -3,17 +3,17 @@ use std::collections::HashMap;
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct VectorTime {
     id: i32,
-    times: HashMap<i32, usize>,
+    times: HashMap<i32, i32>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct SingletonTime {
     id: i32,
-    time: usize,
+    time: i32,
 }
 
 impl SingletonTime {
-    pub fn new(id: i32, time: usize) -> Self {
+    pub fn new(id: i32, time: i32) -> Self {
         Self { id, time }
     }
 }
@@ -39,7 +39,7 @@ impl VectorTime {
         self.times.clear();
     }
 
-    pub fn update_singleton(&mut self, time: usize) {
+    pub fn update_singleton(&mut self, time: i32) {
         if let Some(old_time) = self.times.get_mut(&self.id) {
             assert!(time > *old_time);
             *old_time = time;
