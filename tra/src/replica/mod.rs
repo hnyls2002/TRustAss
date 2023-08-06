@@ -124,7 +124,7 @@ impl Replica {
         };
         let res = self
             .base_node
-            .handle_event(&path, walk, op, self.watch_ifc.clone())
+            .handle_modify(&path, walk, op, self.watch_ifc.clone())
             .await;
         unwrap_res!(res);
         Ok(())
