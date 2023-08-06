@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use tokio::sync::RwLock;
+use tokio::{io::AsyncWriteExt, sync::RwLock};
 
 use crate::{config::TMP_PATH, MyResult};
 
@@ -82,10 +82,31 @@ impl RepMeta {
         if let Ok(path_exist) = file_entry {
             match tokio::fs::read(path_exist).await {
                 Ok(bytes) => return Ok(bytes),
-                Err(_) => Err("read bytes failed".into()),
+                Err(_) => Err("Read Bytes : read bytes failed".into()),
             }
         } else {
             Ok(Vec::new())
         }
+    }
+
+    pub async fn sync_bytes(&self, path: impl AsRef<Path>, data: impl AsRef<[u8]>) -> MyResult<()> {
+        let full_path = self.to_absolute(&path.as_ref().to_path_buf());
+        let mut file = match full_path.canonicalize() {
+            Ok(path_exist) => tokio::fs::OpenOptions::new()
+                .write(true)
+                .open(path_exist)
+                .await
+                .or(Err("Sync Bytes : open file failed"))?,
+            Err(_) => tokio::fs::File::create(full_path)
+                .await
+                .or(Err("Sync Bytes : create file failed"))?,
+        };
+        file.write_all(data.as_ref())
+            .await
+            .or(Err("Sync Bytes : write bytes to file failed"))?;
+        file.flush()
+            .await
+            .or(Err("Sync Bytes : flush file failed"))?;
+        Ok(())
     }
 }

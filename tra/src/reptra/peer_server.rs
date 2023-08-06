@@ -46,6 +46,7 @@ impl PeerServer {
         let delta = patch.into_inner().delta;
         let mut out: Vec<u8> = Vec::new();
         apply(&data, &delta, &mut out).or(Err("apply failed"))?;
+        self.replica.rep_meta.sync_bytes(path, out).await?;
         info!("The size of data is {}", data.len());
         info!("The size of patch is {}", delta.len());
         Ok(())
