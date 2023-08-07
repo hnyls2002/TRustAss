@@ -1,6 +1,7 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use async_recursion::async_recursion;
+use inotify::EventMask;
 use tokio::sync::RwLock;
 
 use crate::{
@@ -8,12 +9,46 @@ use crate::{
         file_watcher::WatchIfc,
         rep_meta::RepMeta,
         timestamp::{SingletonTime, VectorTime},
-        ModOption, ModType,
     },
     unwrap_res, MyResult,
 };
 
 use super::{Node, NodeData, NodeStatus};
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum ModType {
+    Create,
+    Delete,
+    Modify,
+    MovedTo,
+    MovedFrom,
+}
+
+#[derive(Clone)]
+pub struct ModOption {
+    pub ty: ModType,
+    pub time: i32,
+    pub name: String,
+    pub is_dir: bool,
+}
+
+impl ModType {
+    pub fn from_mask(mask: &EventMask) -> Self {
+        if mask.contains(EventMask::CREATE) {
+            return ModType::Create;
+        } else if mask.contains(EventMask::DELETE) {
+            return ModType::Delete;
+        } else if mask.contains(EventMask::MODIFY) {
+            return ModType::Modify;
+        } else if mask.contains(EventMask::MOVED_TO) {
+            return ModType::MovedTo;
+        } else if mask.contains(EventMask::MOVED_FROM) {
+            return ModType::MovedFrom;
+        } else {
+            panic!("Unknown event mask: {:?}", mask);
+        }
+    }
+}
 
 // basic methods
 impl Node {
@@ -122,7 +157,6 @@ impl Node {
     #[async_recursion]
     pub async fn handle_modify(
         &self,
-        path: &PathBuf,
         mut walk: Vec<String>,
         op: ModOption,
         watch_ifc: WatchIfc,
@@ -135,9 +169,7 @@ impl Node {
                 .children
                 .get(&child_name)
                 .ok_or("Event Handling Error : Node not found along the path")?;
-            child
-                .handle_modify(path, walk, op.clone(), watch_ifc)
-                .await?;
+            child.handle_modify(walk, op.clone(), watch_ifc).await?;
             cur_data.mod_time.update_singleton(op.time);
         } else {
             match op.ty {

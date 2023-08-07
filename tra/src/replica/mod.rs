@@ -12,7 +12,11 @@ use std::{
 
 use inotify::{Event, EventMask};
 
-use crate::{reptra::QueryRes, unwrap_res, MyResult};
+use crate::{
+    replica::node::modification::{ModOption, ModType},
+    reptra::QueryRes,
+    unwrap_res, MyResult,
+};
 
 use self::{file_watcher::WatchIfc, node::Node, rep_meta::RepMeta};
 
@@ -20,41 +24,6 @@ pub struct Replica {
     pub rep_meta: Arc<RepMeta>,
     pub base_node: Arc<Node>,
     pub watch_ifc: WatchIfc,
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum ModType {
-    Create,
-    Delete,
-    Modify,
-    MovedTo,
-    MovedFrom,
-}
-
-impl ModType {
-    pub fn from_mask(mask: &EventMask) -> Self {
-        if mask.contains(EventMask::CREATE) {
-            return ModType::Create;
-        } else if mask.contains(EventMask::DELETE) {
-            return ModType::Delete;
-        } else if mask.contains(EventMask::MODIFY) {
-            return ModType::Modify;
-        } else if mask.contains(EventMask::MOVED_TO) {
-            return ModType::MovedTo;
-        } else if mask.contains(EventMask::MOVED_FROM) {
-            return ModType::MovedFrom;
-        } else {
-            panic!("Unknown event mask: {:?}", mask);
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct ModOption {
-    pub ty: ModType,
-    pub time: i32,
-    pub name: String,
-    pub is_dir: bool,
 }
 
 impl Replica {
@@ -115,7 +84,7 @@ impl Replica {
         };
         let res = self
             .base_node
-            .handle_modify(&path, walk, op, self.watch_ifc.clone())
+            .handle_modify(walk, op, self.watch_ifc.clone())
             .await;
         unwrap_res!(res);
         Ok(())
