@@ -1,5 +1,4 @@
 pub mod peer_server;
-pub mod rsync;
 
 pub mod peer {
     #![allow(non_snake_case)]
@@ -75,25 +74,7 @@ impl Reptra {
             .or(Err("failed to send port"))?;
         Ok(())
     }
-}
 
-pub async fn reptra_greet_test(id: i32, centra_addr: &ServeAddr) -> MyResult<()> {
-    let channel = channel_connect(centra_addr).await?;
-    let mut client = GreeterClient::new(channel);
-    for i in 0..3 {
-        let request = Request::new(HelloRequest {
-            name: format!("Say hi {} times from Reptra {}", i, id),
-        });
-        let response = client.say_hello(request).await;
-        let response_msg = response.unwrap().into_inner().message;
-        println!("Response from Centra : {}", response_msg);
-    }
-    info!("greet test passed");
-    Ok(())
-}
-
-// handling the watching stuff
-impl Reptra {
     pub async fn watching(&mut self) -> ! {
         let mut buffer = [0; CHANNEL_BUFFER_SIZE];
         loop {
@@ -111,4 +92,19 @@ impl Reptra {
             self.replica.tree(true).await;
         }
     }
+}
+
+pub async fn reptra_greet_test(id: i32, centra_addr: &ServeAddr) -> MyResult<()> {
+    let channel = channel_connect(centra_addr).await?;
+    let mut client = GreeterClient::new(channel);
+    for i in 0..3 {
+        let request = Request::new(HelloRequest {
+            name: format!("Say hi {} times from Reptra {}", i, id),
+        });
+        let response = client.say_hello(request).await;
+        let response_msg = response.unwrap().into_inner().message;
+        println!("Response from Centra : {}", response_msg);
+    }
+    info!("greet test passed");
+    Ok(())
 }

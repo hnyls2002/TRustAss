@@ -5,6 +5,7 @@ pub mod debugger;
 pub mod machine;
 pub mod replica;
 pub mod reptra;
+pub mod timestamp;
 
 use centra::Centra;
 use checker::check_legal;

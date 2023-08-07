@@ -1,8 +1,6 @@
 pub mod file_watcher;
+pub mod meta;
 pub mod node;
-pub mod rep_meta;
-pub mod timestamp;
-pub mod tree;
 
 use std::{
     ffi::OsStr,
@@ -10,39 +8,53 @@ use std::{
     sync::Arc,
 };
 
+use fast_rsync::{apply, Signature};
 use inotify::{Event, EventMask};
+use tokio::sync::RwLock;
 
 use crate::{
-    config::RpcChannel,
-    replica::node::modification::{ModOption, ModType},
-    reptra::{QueryRes, RsyncClient},
+    config::{RpcChannel, SIG_OPTION},
+    info,
+    reptra::{FetchPatchReq, QueryRes, RsyncClient},
     unwrap_res, MyResult,
 };
 
 use self::{
     file_watcher::WatchIfc,
-    node::{synchronization::SyncOption, Node},
-    rep_meta::RepMeta,
+    meta::Meta,
+    node::{ModOption, ModType, Node, SyncOption},
 };
 
 pub struct Replica {
-    pub rep_meta: Arc<RepMeta>,
+    pub meta: Arc<Meta>,
+    pub counter: RwLock<i32>,
     pub base_node: Arc<Node>,
     pub watch_ifc: WatchIfc,
 }
 
 impl Replica {
+    pub async fn read_counter(&self) -> i32 {
+        self.counter.read().await.clone()
+    }
+
+    pub async fn add_counter(&self) -> i32 {
+        let mut now = self.counter.write().await;
+        *now += 1;
+        *now
+    }
+
     pub async fn new(id: i32, watch_ifc: WatchIfc) -> Self {
-        let rep_meta = Arc::new(RepMeta::new(id));
-        if !rep_meta.check_exist(&rep_meta.prefix) {
-            tokio::fs::create_dir(&rep_meta.prefix).await.unwrap();
-        } else if !rep_meta.check_is_dir(&rep_meta.prefix) {
+        let meta = Arc::new(Meta::new(id));
+        if !meta.check_exist(&meta.prefix) {
+            tokio::fs::create_dir(&meta.prefix).await.unwrap();
+        } else if !meta.check_is_dir(&meta.prefix) {
             panic!("The root path is not a directory!");
         }
-        let base_node = Node::new_base_node(rep_meta.clone(), watch_ifc.clone()).await;
+        let base_node = Node::new_base_node(meta.clone(), watch_ifc.clone()).await;
         let base_node = Arc::new(base_node);
         Self {
-            rep_meta,
+            meta,
+            counter: RwLock::new(0),
             base_node,
             watch_ifc,
         }
@@ -50,7 +62,7 @@ impl Replica {
 
     pub async fn init_all(&self) -> MyResult<()> {
         // init the whole file tree, all inintial is in time 1
-        let init_counter = self.rep_meta.add_counter().await;
+        let init_counter = self.add_counter().await;
         let res = self
             .base_node
             .scan_all(init_counter, self.watch_ifc.clone())
@@ -64,6 +76,10 @@ impl Replica {
             .update_singleton(init_counter);
         Ok(())
     }
+
+    pub async fn tree(&self, show_detail: bool) {
+        self.base_node.sub_tree(show_detail, Vec::new()).await;
+    }
 }
 
 impl Replica {
@@ -74,30 +90,21 @@ impl Replica {
             .await
             .expect("should have this file watched")
             .clone();
-        let walk = self.rep_meta.decompose(&path);
-        let name = event
-            .name
-            .expect("Inotify event name is None")
-            .to_string_lossy()
-            .to_string();
-        let time = self.rep_meta.add_counter().await;
+        let walk = self.meta.decompose_absolute(&path);
         let op = ModOption {
             ty: ModType::from_mask(&event.mask),
-            time,
-            name,
+            time: self.add_counter().await,
+            name: event.name.unwrap().to_str().unwrap().to_string(),
             is_dir: event.mask.contains(EventMask::ISDIR),
         };
-        let res = self
-            .base_node
+        self.base_node
             .handle_modify(walk, op, self.watch_ifc.clone())
-            .await;
-        unwrap_res!(res);
-        Ok(())
+            .await
     }
 
     pub async fn handle_query(&self, path: impl AsRef<Path>) -> MyResult<QueryRes> {
         let path = PathBuf::from(path.as_ref());
-        let walk = self.rep_meta.decompose(&path);
+        let walk = self.meta.decompose_absolute(&path);
         self.base_node.handle_query(walk).await
     }
 
@@ -108,14 +115,38 @@ impl Replica {
         client: RsyncClient<RpcChannel>,
     ) -> MyResult<()> {
         let op = SyncOption {
-            time: self.rep_meta.add_counter().await,
+            time: self.add_counter().await,
             is_dir,
             client,
         };
-        let walk = self.rep_meta.decompose(&PathBuf::from(path.as_ref()));
+        let walk = self.meta.decompose_absolute(&PathBuf::from(path.as_ref()));
         self.base_node
             .handle_sync(op, walk, self.watch_ifc.clone())
             .await?;
+        Ok(())
+    }
+
+    pub async fn sync_one(
+        &self,
+        path: &String,
+        mut client: RsyncClient<RpcChannel>,
+    ) -> MyResult<()> {
+        let data = self.meta.read_bytes(path).await?;
+        let sig = Signature::calculate(&data, SIG_OPTION);
+        let request = FetchPatchReq {
+            path: path.clone(),
+            sig: Vec::from(sig.serialized()),
+        };
+        let patch = client
+            .fetch_patch(request)
+            .await
+            .or(Err("fetch patch failed"))?;
+        let delta = patch.into_inner().delta;
+        let mut out: Vec<u8> = Vec::new();
+        apply(&data, &delta, &mut out).or(Err("apply failed"))?;
+        self.meta.write_bytes(path, out).await?;
+        info!("The size of data is {}", data.len());
+        info!("The size of patch is {}", delta.len());
         Ok(())
     }
 

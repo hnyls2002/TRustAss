@@ -1,23 +1,21 @@
 use std::path::{Path, PathBuf};
 
-use tokio::{io::AsyncWriteExt, sync::RwLock};
+use tokio::io::AsyncWriteExt;
 
 use crate::{config::TMP_PATH, MyResult};
 
 use super::node::NodeStatus;
 
-pub struct RepMeta {
+pub struct Meta {
     pub(super) id: i32,
     pub(super) prefix: PathBuf,
-    pub(super) counter: RwLock<i32>,
 }
 
-impl RepMeta {
+impl Meta {
     pub fn new(id: i32) -> Self {
         Self {
             id,
             prefix: PathBuf::from(format!("{}replica-{}", TMP_PATH, id)),
-            counter: RwLock::new(0),
         }
     }
 
@@ -27,24 +25,12 @@ impl RepMeta {
         ret
     }
 
-    pub fn to_relative(&self, absolute: impl AsRef<Path>) -> Option<PathBuf> {
-        absolute
-            .as_ref()
-            .clone()
-            .strip_prefix(&self.prefix)
-            .map_or(None, |f| Some(f.to_path_buf()))
-    }
-
     pub fn check_exist(&self, relative: &PathBuf) -> bool {
-        let mut path = self.prefix.clone();
-        path.push(relative);
-        path.exists()
+        self.to_absolute(relative).exists()
     }
 
     pub fn check_is_dir(&self, relative: &PathBuf) -> bool {
-        let mut path = self.prefix.clone();
-        path.push(relative);
-        path.is_dir()
+        self.to_absolute(relative).is_dir()
     }
 
     pub fn get_status(&self, relative: &PathBuf) -> NodeStatus {
@@ -53,7 +39,7 @@ impl RepMeta {
             .unwrap_or(NodeStatus::Deleted)
     }
 
-    pub fn decompose(&self, path: &PathBuf) -> Vec<String> {
+    pub fn decompose_absolute(&self, path: &PathBuf) -> Vec<String> {
         let mut tmp_path = path.clone();
         let mut ret: Vec<String> = Vec::new();
         while tmp_path.file_name().is_some() {
@@ -66,20 +52,8 @@ impl RepMeta {
         ret
     }
 
-    pub async fn read_counter(&self) -> i32 {
-        self.counter.read().await.clone()
-    }
-
-    pub async fn add_counter(&self) -> i32 {
-        let mut now = self.counter.write().await;
-        *now += 1;
-        *now
-    }
-
     pub async fn read_bytes(&self, path: impl AsRef<Path>) -> MyResult<Vec<u8>> {
-        let file_entry = self
-            .to_absolute(&path.as_ref().to_path_buf())
-            .canonicalize();
+        let file_entry = self.to_absolute(path).canonicalize();
         if let Ok(path_exist) = file_entry {
             match tokio::fs::read(path_exist).await {
                 Ok(bytes) => return Ok(bytes),
@@ -90,8 +64,12 @@ impl RepMeta {
         }
     }
 
-    pub async fn write_bytes(&self, path: impl AsRef<Path>, data: impl AsRef<[u8]>) -> MyResult<()> {
-        let full_path = self.to_absolute(&path.as_ref().to_path_buf());
+    pub async fn write_bytes(
+        &self,
+        path: impl AsRef<Path>,
+        data: impl AsRef<[u8]>,
+    ) -> MyResult<()> {
+        let full_path = self.to_absolute(path);
         let mut file = match full_path.canonicalize() {
             Ok(path_exist) => tokio::fs::OpenOptions::new()
                 .write(true)
