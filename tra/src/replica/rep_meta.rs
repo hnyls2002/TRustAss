@@ -21,14 +21,15 @@ impl RepMeta {
         }
     }
 
-    pub fn to_absolute(&self, relative: &PathBuf) -> PathBuf {
+    pub fn to_absolute(&self, relative: impl AsRef<Path>) -> PathBuf {
         let mut ret = self.prefix.clone();
         ret.push(relative);
         ret
     }
 
-    pub fn to_relative(&self, absolute: &PathBuf) -> Option<PathBuf> {
+    pub fn to_relative(&self, absolute: impl AsRef<Path>) -> Option<PathBuf> {
         absolute
+            .as_ref()
             .clone()
             .strip_prefix(&self.prefix)
             .map_or(None, |f| Some(f.to_path_buf()))
@@ -89,7 +90,7 @@ impl RepMeta {
         }
     }
 
-    pub async fn sync_bytes(&self, path: impl AsRef<Path>, data: impl AsRef<[u8]>) -> MyResult<()> {
+    pub async fn write_bytes(&self, path: impl AsRef<Path>, data: impl AsRef<[u8]>) -> MyResult<()> {
         let full_path = self.to_absolute(&path.as_ref().to_path_buf());
         let mut file = match full_path.canonicalize() {
             Ok(path_exist) => tokio::fs::OpenOptions::new()

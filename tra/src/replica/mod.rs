@@ -13,12 +13,17 @@ use std::{
 use inotify::{Event, EventMask};
 
 use crate::{
+    config::RpcChannel,
     replica::node::modification::{ModOption, ModType},
-    reptra::QueryRes,
+    reptra::{QueryRes, RsyncClient},
     unwrap_res, MyResult,
 };
 
-use self::{file_watcher::WatchIfc, node::Node, rep_meta::RepMeta};
+use self::{
+    file_watcher::WatchIfc,
+    node::{synchronization::SyncOption, Node},
+    rep_meta::RepMeta,
+};
 
 pub struct Replica {
     pub rep_meta: Arc<RepMeta>,
@@ -96,10 +101,21 @@ impl Replica {
         self.base_node.handle_query(walk).await
     }
 
-    pub async fn handle_sync(&mut self, path: impl AsRef<Path>) -> MyResult<()> {
-        let path = PathBuf::from(path.as_ref());
-        let walk = self.rep_meta.decompose(&path);
-        self.base_node.handle_sync(walk).await?;
+    pub async fn handle_sync(
+        &self,
+        path: impl AsRef<Path>,
+        is_dir: bool,
+        client: RsyncClient<RpcChannel>,
+    ) -> MyResult<()> {
+        let op = SyncOption {
+            time: self.rep_meta.add_counter().await,
+            is_dir,
+            client,
+        };
+        let walk = self.rep_meta.decompose(&PathBuf::from(path.as_ref()));
+        self.base_node
+            .handle_sync(op, walk, self.watch_ifc.clone())
+            .await?;
         Ok(())
     }
 

@@ -13,7 +13,7 @@ use crate::{
     MyResult,
 };
 
-use super::{rsync::SIG_OPTION, RsyncClient};
+use super::{rsync::SIG_OPTION, RsyncClient, SyncReq};
 
 pub struct PeerServer {
     pub replica: Arc<Replica>,
@@ -47,9 +47,20 @@ impl PeerServer {
         let delta = patch.into_inner().delta;
         let mut out: Vec<u8> = Vec::new();
         apply(&data, &delta, &mut out).or(Err("apply failed"))?;
-        self.replica.rep_meta.sync_bytes(path, out).await?;
+        self.replica.rep_meta.write_bytes(path, out).await?;
         info!("The size of data is {}", data.len());
         info!("The size of patch is {}", delta.len());
+        Ok(())
+    }
+
+    pub async fn sync(&self, sync_req: &SyncReq) -> MyResult<()> {
+        let query_channel = self
+            .get_channel(&ServeAddr::new(sync_req.port as u16))
+            .await?;
+        let client = RsyncClient::new(query_channel);
+        self.replica
+            .handle_sync(&sync_req.path, sync_req.is_dir, client)
+            .await?;
         Ok(())
     }
 }

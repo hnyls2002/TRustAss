@@ -66,11 +66,25 @@ impl VectorTime {
     //     }
     // }
 
-    pub fn inside(&self, other: &VectorTime) -> bool {
+    pub fn leq(&self, other: &HashMap<i32, i32>) -> bool {
         for (id, time) in &self.times {
             assert!(*time != 0);
-            if let Some(other_time) = other.times.get(id) {
+            if let Some(other_time) = other.get(id) {
                 if *time > *other_time {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub fn geq(&self, other: &HashMap<i32, i32>) -> bool {
+        for (id, time) in other {
+            assert!(*time != 0);
+            if let Some(self_time) = self.times.get(id) {
+                if *time > *self_time {
                     return false;
                 }
             } else {

@@ -161,8 +161,8 @@ impl Node {
         op: ModOption,
         watch_ifc: WatchIfc,
     ) -> MyResult<()> {
-        // not the target node yet
         if !walk.is_empty() {
+            // not the target node yet
             let mut cur_data = self.data.write().await;
             let child_name = walk.pop().unwrap();
             let child = cur_data

@@ -13,6 +13,7 @@ message Patch { bytes delta = 1; }
 message SyncReq {
   int32 port = 1;
   string path = 2;
+  bool is_dir = 3;
 }
 
 message BoolResult { bool success = 1; }
