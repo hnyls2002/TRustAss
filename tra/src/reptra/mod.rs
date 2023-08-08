@@ -38,8 +38,8 @@ impl Reptra {
     pub async fn new_start_service(id: i32) -> MyResult<Self> {
         let (serve_addr, incoming) = get_listener().await?;
         let file_watcher = FileWatcher::new();
-        let watch_ifc = file_watcher.get_ifc();
-        let replica = Arc::new(Replica::new(id, watch_ifc).await);
+        let watch = file_watcher.get_ifc();
+        let replica = Arc::new(Replica::new(id, watch).await);
         replica.init_all().await?;
         replica.tree(false).await;
         let peer_server = PeerServer {

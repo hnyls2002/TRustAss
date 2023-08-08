@@ -1,4 +1,9 @@
-use std::{collections::HashMap, ffi::OsStr, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    ffi::OsStr,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use inotify::{Event, Inotify, WatchDescriptor, WatchMask, Watches};
 use lazy_static::lazy_static;
@@ -17,6 +22,7 @@ lazy_static! {
 pub struct FileWatcher {
     pub inotify: Inotify,
     pub wd_map: Arc<RwLock<HashMap<WatchDescriptor, PathBuf>>>,
+    pub path_map: Arc<RwLock<HashMap<PathBuf, WatchDescriptor>>>,
     pub cnt: i32,
 }
 
@@ -31,6 +37,7 @@ impl FileWatcher {
         Self {
             inotify: Inotify::init().expect("Failed to initialize inotify"),
             wd_map: Arc::new(RwLock::new(HashMap::new())),
+            path_map: Arc::new(RwLock::new(HashMap::new())),
             cnt: 0,
         }
     }
@@ -54,11 +61,12 @@ impl FileWatcher {
 }
 
 impl WatchIfc {
-    pub async fn add_watch(&mut self, path: &PathBuf) -> Option<WatchDescriptor> {
+    pub async fn add_watch(&self, path: &PathBuf) -> Option<WatchDescriptor> {
         // watching directory is enough
+        let mut tmp_watches = self.watches.clone();
         if path.is_dir() {
             info!("add_watches: {}", path.display());
-            let wd = self.watches.add(path.as_path(), *WATCH_EVENTS).unwrap();
+            let wd = tmp_watches.add(path.as_path(), *WATCH_EVENTS).unwrap();
             self.wd_map.write().await.insert(wd.clone(), path.clone());
             Some(wd)
         } else {
@@ -66,10 +74,11 @@ impl WatchIfc {
         }
     }
 
-    pub async fn remove_watch(&mut self, path: &PathBuf, wd: &WatchDescriptor) -> MyResult<()> {
-        info!("remove_watches: {}", path.display());
+    pub async fn remove_watch(&self, path: impl AsRef<Path>, wd: &WatchDescriptor) -> MyResult<()> {
+        info!("remove_watches: {}", path.as_ref().display());
         self.wd_map.write().await.remove(wd);
-        self.watches
+        let mut tmp_watches = self.watches.clone();
+        tmp_watches
             .remove((*wd).clone())
             .or(Err("Watch already removed"))?;
         Ok(())

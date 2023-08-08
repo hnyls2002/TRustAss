@@ -27,7 +27,6 @@ pub struct Replica {
     pub meta: Arc<Meta>,
     pub counter: RwLock<i32>,
     pub base_node: Arc<Node>,
-    pub watch_ifc: WatchIfc,
 }
 
 impl Replica {
@@ -41,30 +40,26 @@ impl Replica {
         *now
     }
 
-    pub async fn new(id: i32, watch_ifc: WatchIfc) -> Self {
-        let meta = Arc::new(Meta::new(id));
+    pub async fn new(id: i32, watch: WatchIfc) -> Self {
+        let meta = Arc::new(Meta::new(id, watch));
         if !meta.check_exist(&meta.prefix) {
             tokio::fs::create_dir(&meta.prefix).await.unwrap();
         } else if !meta.check_is_dir(&meta.prefix) {
             panic!("The root path is not a directory!");
         }
-        let base_node = Node::new_base_node(meta.clone(), watch_ifc.clone()).await;
+        let base_node = Node::new_base_node(&meta).await;
         let base_node = Arc::new(base_node);
         Self {
             meta,
             counter: RwLock::new(0),
             base_node,
-            watch_ifc,
         }
     }
 
     pub async fn init_all(&self) -> MyResult<()> {
         // init the whole file tree, all inintial is in time 1
         let init_counter = self.add_counter().await;
-        let res = self
-            .base_node
-            .scan_all(init_counter, self.watch_ifc.clone())
-            .await;
+        let res = self.base_node.scan_all(init_counter).await;
         unwrap_res!(res);
         self.base_node
             .data
@@ -83,7 +78,8 @@ impl Replica {
 impl Replica {
     pub async fn handle_event(&self, event: &Event<&OsStr>) -> MyResult<()> {
         let path = self
-            .watch_ifc
+            .meta
+            .watch
             .query_path(&event.wd)
             .await
             .expect("should have this file watched")
@@ -95,9 +91,7 @@ impl Replica {
             name: event.name.unwrap().to_str().unwrap().to_string(),
             is_dir: event.mask.contains(EventMask::ISDIR),
         };
-        self.base_node
-            .handle_modify(walk, op, self.watch_ifc.clone())
-            .await
+        self.base_node.handle_modify(walk, op).await
     }
 
     pub async fn handle_query(&self, path: impl AsRef<Path>) -> MyResult<QueryRes> {
@@ -118,9 +112,7 @@ impl Replica {
             client,
         };
         let walk = self.meta.decompose_absolute(&PathBuf::from(path.as_ref()));
-        self.base_node
-            .handle_sync(op, walk, self.watch_ifc.clone())
-            .await?;
+        self.base_node.handle_sync(op, walk).await?;
         Ok(())
     }
 

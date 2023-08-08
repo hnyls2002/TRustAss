@@ -10,18 +10,20 @@ use crate::{
     MyResult,
 };
 
-use super::node::NodeStatus;
+use super::{file_watcher::WatchIfc, node::NodeStatus};
 
 pub struct Meta {
     pub(super) id: i32,
     pub(super) prefix: PathBuf,
+    pub(super) watch: WatchIfc,
 }
 
 impl Meta {
-    pub fn new(id: i32) -> Self {
+    pub fn new(id: i32, watch: WatchIfc) -> Self {
         Self {
             id,
             prefix: PathBuf::from(format!("{}replica-{}", TMP_PATH, id)),
+            watch,
         }
     }
 
@@ -113,7 +115,8 @@ impl Meta {
         let delta = patch.into_inner().delta;
         let mut out: Vec<u8> = Vec::new();
         apply(&data, &delta, &mut out).or(Err("Sync Bytes : apply failed"))?;
-        self.write_bytes(path, out).await?;
+        // get the new data done, first remove the watcher on current file
+        self.write_bytes(&path, out).await?;
         info!("The size of data is {}", data.len());
         info!("The size of patch is {}", delta.len());
         Ok(())
