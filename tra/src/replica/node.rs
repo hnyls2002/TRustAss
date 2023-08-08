@@ -375,6 +375,7 @@ impl Node {
         }
     }
 
+    // always sync remote -> local
     #[async_recursion]
     pub async fn handle_sync(
         &self,
@@ -490,28 +491,73 @@ impl Node {
         Ok(())
     }
 
+    // sync a remote folder -> local folder
+    #[async_recursion]
     pub async fn sync_dir(&self, mut op: SyncOption) -> MyResult<()> {
+        let data = self.data.write().await;
+        let remote = op.query_path(&self.path).await?;
+        if (remote.deleted && data.status == NodeStatus::Deleted)
+            || (!remote.deleted && data.sync_time.geq(&remote.mod_time))
+        {
+            // skip
+            return Ok(());
+        } else {
+            for (_, child) in data.children.iter() {
+                child.sync_dir(op.clone()).await?;
+            }
+        }
         todo!()
     }
 
+    // sync a single remove file to local
     pub async fn sync_file(&self, mut op: SyncOption) -> MyResult<()> {
         let data = self.data.write().await;
-        let query_res = op.query_path(&self.path).await?;
+        let remote = op.query_path(&self.path).await?;
 
-        if data.status == NodeStatus::Exist && query_res.deleted == false {
-            // both exist
-            if data.mod_time.leq(&query_res.sync_time) {
-                // do nothing
+        if data.status == NodeStatus::Exist && !remote.deleted {
+            if data.mod_time.leq(&remote.sync_time) {
+                // local_m <= remote_s
+                self.meta.sync_bytes(self.path.as_path(), op.client).await?;
                 return Ok(());
-            } else if data.sync_time.geq(&query_res.mod_time) {
-                // copy the file
+            } else if data.sync_time.geq(&remote.mod_time) {
+                // local_s >= remote_m
                 return Ok(());
             } else {
                 // report conflicts
                 todo!()
             }
-        } else if data.status == NodeStatus::Exist || query_res.deleted == false {
-            // one exists, the other is deleted
+        } else if data.status == NodeStatus::Exist || remote.deleted == false {
+            if remote.deleted {
+                // remote(deleted) -> local
+                if data.create_time.leq_vec(&remote.sync_time) {
+                    if data.mod_time.leq(&remote.sync_time) {
+                        // delete the local file
+                        todo!();
+                    } else {
+                        // report conflicts
+                        todo!()
+                    }
+                } else {
+                    // do nothing
+                    return Ok(());
+                }
+            } else {
+                // remote -> local(deleted)
+                let (id, time) = (remote.id, remote.create_time);
+                if data.sync_time.geq_singleton(id, time) {
+                    if data.sync_time.geq(&remote.mod_time) {
+                        // do nothing
+                        return Ok(());
+                    } else {
+                        // report conflicts
+                        todo!()
+                    }
+                } else {
+                    // copy the file
+                    self.meta.sync_bytes(self.path.as_path(), op.client).await?;
+                    return Ok(());
+                }
+            }
         }
         todo!()
     }

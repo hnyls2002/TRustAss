@@ -1,8 +1,14 @@
 use std::path::{Path, PathBuf};
 
+use fast_rsync::{apply, Signature};
 use tokio::io::AsyncWriteExt;
 
-use crate::{config::TMP_PATH, MyResult};
+use crate::{
+    config::{RpcChannel, SIG_OPTION, TMP_PATH},
+    info,
+    reptra::{FetchPatchReq, RsyncClient},
+    MyResult,
+};
 
 use super::node::NodeStatus;
 
@@ -86,6 +92,30 @@ impl Meta {
         file.flush()
             .await
             .or(Err("Sync Bytes : flush file failed"))?;
+        Ok(())
+    }
+
+    pub async fn sync_bytes(
+        &self,
+        path: impl AsRef<Path>,
+        mut client: RsyncClient<RpcChannel>,
+    ) -> MyResult<()> {
+        let data = self.read_bytes(path.as_ref()).await?;
+        let sig = Signature::calculate(&data, SIG_OPTION);
+        let request = FetchPatchReq {
+            path: path.as_ref().to_str().unwrap().to_string(),
+            sig: Vec::from(sig.serialized()),
+        };
+        let patch = client
+            .fetch_patch(request)
+            .await
+            .or(Err("Sync Bytes : fetch patch failed"))?;
+        let delta = patch.into_inner().delta;
+        let mut out: Vec<u8> = Vec::new();
+        apply(&data, &delta, &mut out).or(Err("Sync Bytes : apply failed"))?;
+        self.write_bytes(path, out).await?;
+        info!("The size of data is {}", data.len());
+        info!("The size of patch is {}", delta.len());
         Ok(())
     }
 }

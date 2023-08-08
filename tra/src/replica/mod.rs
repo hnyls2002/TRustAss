@@ -8,14 +8,12 @@ use std::{
     sync::Arc,
 };
 
-use fast_rsync::{apply, Signature};
 use inotify::{Event, EventMask};
 use tokio::sync::RwLock;
 
 use crate::{
-    config::{RpcChannel, SIG_OPTION},
-    info,
-    reptra::{FetchPatchReq, QueryRes, RsyncClient},
+    config::RpcChannel,
+    reptra::{QueryRes, RsyncClient},
     unwrap_res, MyResult,
 };
 
@@ -123,30 +121,6 @@ impl Replica {
         self.base_node
             .handle_sync(op, walk, self.watch_ifc.clone())
             .await?;
-        Ok(())
-    }
-
-    pub async fn sync_one(
-        &self,
-        path: &String,
-        mut client: RsyncClient<RpcChannel>,
-    ) -> MyResult<()> {
-        let data = self.meta.read_bytes(path).await?;
-        let sig = Signature::calculate(&data, SIG_OPTION);
-        let request = FetchPatchReq {
-            path: path.clone(),
-            sig: Vec::from(sig.serialized()),
-        };
-        let patch = client
-            .fetch_patch(request)
-            .await
-            .or(Err("fetch patch failed"))?;
-        let delta = patch.into_inner().delta;
-        let mut out: Vec<u8> = Vec::new();
-        apply(&data, &delta, &mut out).or(Err("apply failed"))?;
-        self.meta.write_bytes(path, out).await?;
-        info!("The size of data is {}", data.len());
-        info!("The size of patch is {}", delta.len());
         Ok(())
     }
 

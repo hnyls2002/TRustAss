@@ -89,7 +89,8 @@ impl Rsync for PeerServer {
             .or(Err(Status::invalid_argument("get channel failed")))?;
         let client = RsyncClient::new(channel);
         self.replica
-            .sync_one(&path, client)
+            .meta
+            .sync_bytes(&path, client)
             .await
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
         Ok(Response::new(BoolResult { success: true }))

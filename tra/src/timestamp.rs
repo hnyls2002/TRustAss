@@ -20,6 +20,10 @@ impl SingletonTime {
     pub fn extract_time(&self) -> i32 {
         self.time
     }
+
+    pub fn leq_vec(&self, other: &HashMap<i32, i32>) -> bool {
+        self.time <= *other.get(&self.id).unwrap_or(&0)
+    }
 }
 
 impl VectorTime {
@@ -56,16 +60,6 @@ impl VectorTime {
         }
     }
 
-    // pub fn chkmax(&mut self, other: &Self) {
-    //     for (id, time) in &other.times {
-    //         if let Some(slef_time) = self.times.get(id) {
-    //             self.times.insert(*id, (*slef_time).max(*time));
-    //         } else {
-    //             self.times.insert(*id, *time);
-    //         }
-    //     }
-    // }
-
     pub fn leq(&self, other: &HashMap<i32, i32>) -> bool {
         for (id, time) in &self.times {
             assert!(*time != 0);
@@ -92,6 +86,10 @@ impl VectorTime {
             }
         }
         true
+    }
+
+    pub fn geq_singleton(&self, id: i32, time: i32) -> bool {
+        SingletonTime::new(id, time).leq_vec(&self.extract_hashmap())
     }
 
     pub fn display(&self) -> String {
