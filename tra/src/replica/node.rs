@@ -7,8 +7,7 @@ use tonic::Request;
 
 use crate::{
     config::RpcChannel,
-    error,
-    replica::Meta,
+    replica::{meta::sync_bytes, Meta},
     reptra::{QueryReq, QueryRes, RsyncClient},
     timestamp::{SingletonTime, VectorTime},
     unwrap_res, MyResult,
@@ -31,6 +30,7 @@ pub enum ModType {
     MovedFrom,
 }
 
+#[derive(Clone)]
 pub struct NodeData {
     pub children: HashMap<String, Arc<Node>>,
     pub mod_time: VectorTime,
@@ -81,20 +81,20 @@ impl ModType {
 }
 
 impl QueryRes {
-    pub fn new_exist(meta: &Arc<Meta>, data: &NodeData) -> Self {
+    pub fn new_exist(data: &NodeData) -> Self {
         Self {
-            id: meta.id,
             deleted: false,
-            create_time: data.create_time.extract_time(),
+            create_id: data.create_time.create_id(),
+            create_time: data.create_time.time(),
             mod_time: data.mod_time.extract_hashmap(),
             sync_time: data.sync_time.extract_hashmap(),
         }
     }
 
-    pub fn new_deleted(meta: &Arc<Meta>, data: &NodeData) -> Self {
+    pub fn new_deleted(data: &NodeData) -> Self {
         Self {
-            id: meta.id,
             deleted: true,
+            create_id: 0,
             create_time: 0,
             mod_time: HashMap::new(),
             sync_time: data.sync_time.extract_hashmap(),
@@ -205,8 +205,8 @@ impl Node {
     pub async fn new_base_node(meta: &Arc<Meta>, path: PathLocal) -> Self {
         let data = NodeData {
             children: HashMap::new(),
-            mod_time: VectorTime::new_empty(meta.id),
-            sync_time: VectorTime::new_empty(meta.id),
+            mod_time: VectorTime::default(),
+            sync_time: VectorTime::default(),
             create_time: SingletonTime::default(),
             status: NodeStatus::Exist,
             wd: meta.watch.add_watch(&path).await,
@@ -247,7 +247,7 @@ impl Node {
     ) -> Self {
         let data = NodeData {
             children: HashMap::new(),
-            mod_time: VectorTime::new_empty(meta.id),
+            mod_time: VectorTime::default(),
             sync_time: sync_time.clone(),
             create_time: SingletonTime::new(meta.id, 0),
             status: NodeStatus::Deleted,
@@ -296,7 +296,7 @@ impl Node {
                 .get(&child_name)
                 .ok_or("Event Handling Error : Node not found along the path")?;
             child.handle_modify(walk, op.clone()).await?;
-            cur_data.mod_time.update_singleton(op.time);
+            cur_data.mod_time.update_one(self.meta.id, op.time);
         } else {
             match op.ty {
                 ModType::Create | ModType::MovedTo => {
@@ -310,7 +310,7 @@ impl Node {
                         .get(&op.name)
                         .ok_or("Delete Error : Node not found when handling Delete Event")?;
                     deleted.delete_rm(op.time).await?;
-                    data.mod_time.update_singleton(op.time);
+                    data.mod_time.update_one(self.meta.id, op.time);
                 }
                 ModType::Modify => {
                     let mut data = self.data.write().await;
@@ -319,7 +319,7 @@ impl Node {
                         .get(&op.name)
                         .ok_or("Modify Error : Node not found when handling Modify event")?;
                     modified.modify_self(op.time).await?;
-                    data.mod_time.update_singleton(op.time);
+                    data.mod_time.update_one(self.meta.id, op.time);
                 }
                 ModType::MovedFrom => {
                     let mut data = self.data.write().await;
@@ -328,7 +328,7 @@ impl Node {
                         .get(&op.name)
                         .ok_or("Delete Error : Node not found when handling MovedTo event")?;
                     deleted.delete_moved_from(op.time).await?;
-                    data.mod_time.update_singleton(op.time);
+                    data.mod_time.update_one(self.meta.id, op.time);
                 }
             };
         };
@@ -341,7 +341,7 @@ impl Node {
 
         // deleted : return directly
         if cur_data.status == NodeStatus::Deleted {
-            return Ok(QueryRes::new_deleted(&self.meta, &cur_data));
+            return Ok(QueryRes::new_deleted(&cur_data));
         }
 
         if !walk.is_empty() {
@@ -351,11 +351,11 @@ impl Node {
                 child.handle_query(walk).await
             } else {
                 // if the child node does not exist, return father's sync time
-                Ok(QueryRes::new_deleted(&self.meta, &cur_data))
+                Ok(QueryRes::new_deleted(&cur_data))
             }
         } else {
             // the target node, and it exists
-            Ok(QueryRes::new_exist(&self.meta, &cur_data))
+            Ok(QueryRes::new_exist(&cur_data))
         }
     }
 
@@ -402,14 +402,14 @@ impl Node {
         }
         let mut parent_data = self.data.write().await;
         parent_data.children.insert(name.clone(), child);
-        parent_data.mod_time.update_singleton(time);
+        parent_data.mod_time.update_one(self.meta.id, time);
         Ok(())
     }
 
     pub async fn modify_self(&self, time: i32) -> MyResult<()> {
         let mut data = self.data.write().await;
-        data.mod_time.update_singleton(time);
-        data.sync_time.update_singleton(time);
+        data.mod_time.update_one(self.meta.id, time);
+        data.sync_time.update_one(self.meta.id, time);
         Ok(())
     }
 
@@ -425,7 +425,7 @@ impl Node {
         }
         // clear the mod time && update the sync time
         data.mod_time.clear();
-        data.sync_time.update_singleton(time);
+        data.sync_time.update_one(self.meta.id, time);
         data.status = NodeStatus::Deleted;
         if data.wd.is_some() {
             let wd = data.wd.take().unwrap();
@@ -452,7 +452,7 @@ impl Node {
             unwrap_res!(child.delete_moved_from(time).await);
         }
         data.mod_time.clear();
-        data.sync_time.update_singleton(time);
+        data.sync_time.update_one(self.meta.id, time);
         data.status = NodeStatus::Deleted;
         if data.wd.is_some() {
             let wd = data.wd.take().unwrap();
@@ -486,8 +486,9 @@ impl Node {
 
     // sync a single remove file to local
     pub async fn sync_file(&self, mut op: SyncOption) -> MyResult<()> {
-        let mut data = self.data.write().await;
+        let data = self.data.write().await.clone();
         let remote = op.query_path(&self.path).await?;
+        // the rw_lock is not required here
 
         if data.status == NodeStatus::Exist && !remote.deleted {
             if data.mod_time.leq(&remote.sync_time) {
@@ -497,6 +498,7 @@ impl Node {
                 return Ok(());
             } else if data.sync_time.geq(&remote.mod_time) {
                 // local_s >= remote_m
+                // do nothing
                 return Ok(());
             } else {
                 // report conflicts
@@ -520,7 +522,7 @@ impl Node {
                 }
             } else {
                 // remote -> local(deleted)
-                let (id, time) = (remote.id, remote.create_time);
+                let (id, time) = (remote.create_id, remote.create_time);
                 if data.sync_time.geq_singleton(id, time) {
                     if data.sync_time.geq(&remote.mod_time) {
                         // do nothing
@@ -531,7 +533,7 @@ impl Node {
                     }
                 } else {
                     // create the local file and copy the content
-                    self.create_sync(&mut data).await?;
+                    self.create_sync(op, &remote).await?;
                     return Ok(());
                 }
             }
@@ -543,10 +545,17 @@ impl Node {
         todo!()
     }
 
-    pub async fn create_sync(&self, data: &mut NodeData) -> MyResult<()> {
-        error!("file path {}", self.path.display());
-        error!("file status {:?}", data.status);
-        todo!()
+    pub async fn create_sync(&self, op: SyncOption, remote: &QueryRes) -> MyResult<()> {
+        let mut cur_data = self.data.write().await;
+        assert!(cur_data.wd.is_none());
+        sync_bytes(&self.path, op.client).await?;
+        cur_data.mod_time = remote.mod_time.clone().into();
+        cur_data.sync_time = remote.sync_time.clone().into();
+        cur_data.sync_time.update_one(self.meta.id, op.time);
+        cur_data.create_time = SingletonTime::new(remote.create_id, remote.create_time);
+        cur_data.status = NodeStatus::Exist;
+        cur_data.wd = self.meta.watch.add_watch(self.path.as_ref()).await;
+        Ok(())
     }
 
     pub async fn delete_sync(&self) -> MyResult<()> {

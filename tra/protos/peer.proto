@@ -21,8 +21,8 @@ message BoolResult { bool success = 1; }
 message QueryReq { string path_rel = 1; }
 
 message QueryRes {
-  int32 id = 1;
-  bool deleted = 2;
+  bool deleted = 1;
+  int32 create_id = 2;
   int32 create_time = 3;
   map<int32, int32> mod_time = 4;
   map<int32, int32> sync_time = 5;
