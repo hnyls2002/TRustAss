@@ -1,4 +1,9 @@
-use std::{collections::HashMap, ffi::OsStr, path::Path, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    ffi::OsStr,
+    path::Path,
+    sync::Arc,
+};
 
 use inotify::{Event, Inotify, WatchDescriptor, WatchMask, Watches};
 use lazy_static::lazy_static;
@@ -19,7 +24,7 @@ lazy_static! {
 pub struct FileWatcher {
     pub inotify: Inotify,
     pub wd_map: Arc<RwLock<HashMap<WatchDescriptor, PathLocal>>>,
-    pub path_map: Arc<RwLock<HashMap<PathLocal, WatchDescriptor>>>,
+    pub freeze_set: Arc<RwLock<HashSet<WatchDescriptor>>>,
     pub cnt: i32,
 }
 
@@ -27,6 +32,7 @@ pub struct FileWatcher {
 pub struct WatchIfc {
     watches: Watches,
     wd_map: Arc<RwLock<HashMap<WatchDescriptor, PathLocal>>>,
+    freeze_set: Arc<RwLock<HashSet<WatchDescriptor>>>,
 }
 
 impl FileWatcher {
@@ -34,7 +40,7 @@ impl FileWatcher {
         Self {
             inotify: Inotify::init().expect("Failed to initialize inotify"),
             wd_map: Arc::new(RwLock::new(HashMap::new())),
-            path_map: Arc::new(RwLock::new(HashMap::new())),
+            freeze_set: Arc::new(RwLock::new(HashSet::new())),
             cnt: 0,
         }
     }
@@ -43,7 +49,12 @@ impl FileWatcher {
         WatchIfc {
             watches: self.inotify.watches(),
             wd_map: self.wd_map.clone(),
+            freeze_set: self.freeze_set.clone(),
         }
+    }
+
+    pub async fn is_freezed(&self, wd: &WatchDescriptor) -> bool {
+        self.freeze_set.read().await.contains(wd)
     }
 
     pub async fn display_event(&mut self, event: &Event<&OsStr>) {
@@ -83,5 +94,13 @@ impl WatchIfc {
 
     pub async fn query_path(&self, wd: &WatchDescriptor) -> Option<PathLocal> {
         self.wd_map.read().await.get(wd).cloned()
+    }
+
+    pub async fn freeze_watch(&self, wd: &WatchDescriptor) {
+        self.freeze_set.write().await.insert(wd.clone());
+    }
+
+    pub async fn unfreeze_watch(&self, wd: &WatchDescriptor) {
+        self.freeze_set.write().await.remove(wd);
     }
 }

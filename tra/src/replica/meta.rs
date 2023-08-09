@@ -1,4 +1,5 @@
 use fast_rsync::{apply, Signature};
+use inotify::WatchDescriptor;
 use tokio::io::AsyncWriteExt;
 
 use crate::{
@@ -23,6 +24,7 @@ impl Meta {
     pub async fn sync_bytes(
         &self,
         path: &PathLocal,
+        wd: &WatchDescriptor,
         mut client: RsyncClient<RpcChannel>,
     ) -> MyResult<()> {
         let data = read_bytes(path).await?;
@@ -39,7 +41,9 @@ impl Meta {
         let mut out: Vec<u8> = Vec::new();
         apply(&data, &delta, &mut out).or(Err("Sync Bytes : apply failed"))?;
         // get the new data done, first remove the watcher on current file
+        self.watch.freeze_watch(wd).await;
         write_bytes(&path, out).await?;
+        self.watch.unfreeze_watch(wd).await;
         info!("The size of data is {}", data.len());
         info!("The size of patch is {}", delta.len());
         Ok(())
@@ -61,6 +65,7 @@ pub async fn write_bytes(path: &PathLocal, data: impl AsRef<[u8]>) -> MyResult<(
     let mut file = if path.exists() {
         tokio::fs::OpenOptions::new()
             .write(true)
+            .truncate(true)
             .open(path)
             .await
             .or(Err("Sync Bytes : open file failed"))?

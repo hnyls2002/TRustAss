@@ -105,13 +105,13 @@ impl Replica {
         is_dir: bool,
         client: RsyncClient<RpcChannel>,
     ) -> MyResult<()> {
+        let path = PathLocal::new_from_rel(self.base_node.path.prefix(), path);
+        let walk = path.get_walk();
         let op = SyncOption {
             time: self.add_counter().await,
             is_dir,
             client,
         };
-        let path = PathLocal::new_from_rel(self.base_node.path.prefix(), path);
-        let walk = path.get_walk();
         self.base_node.handle_sync(op, walk).await?;
         Ok(())
     }

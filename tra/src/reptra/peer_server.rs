@@ -30,17 +30,6 @@ impl PeerServer {
         inner.insert(serve_addr.clone(), channel.clone());
         return Ok(channel);
     }
-
-    pub async fn sync(&self, sync_req: &SyncReq) -> MyResult<()> {
-        let query_channel = self
-            .get_channel(&ServeAddr::new(sync_req.port as u16))
-            .await?;
-        let client = RsyncClient::new(query_channel);
-        self.replica
-            .handle_sync(&sync_req.path_rel, sync_req.is_dir, client)
-            .await?;
-        Ok(())
-    }
 }
 
 #[tonic::async_trait]
@@ -71,24 +60,17 @@ impl Rsync for PeerServer {
         Ok(Response::new(res))
     }
 
-    async fn request_sync(
-        &self,
-        sync_msg: Request<SyncReq>,
-    ) -> Result<Response<BoolResult>, Status> {
-        let sync_msg = sync_msg.into_inner();
-        let path =
-            PathLocal::new_from_rel(&self.replica.base_node.path.prefix(), &sync_msg.path_rel);
-        let target_addr = ServeAddr::new(sync_msg.port as u16);
-        let channel = self
-            .get_channel(&target_addr)
+    async fn request_sync(&self, req: Request<SyncReq>) -> Result<Response<BoolResult>, Status> {
+        let inner = req.into_inner();
+        let query_channel = self
+            .get_channel(&ServeAddr::new(inner.port as u16))
             .await
             .or(Err(Status::invalid_argument("get channel failed")))?;
-        let client = RsyncClient::new(channel);
+        let client = RsyncClient::new(query_channel);
         self.replica
-            .meta
-            .sync_bytes(&path, client)
+            .handle_sync(&inner.path_rel, inner.is_dir, client)
             .await
-            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+            .or(Err(Status::invalid_argument("sync failed")))?;
         Ok(Response::new(BoolResult { success: true }))
     }
 }

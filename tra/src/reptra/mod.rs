@@ -84,7 +84,9 @@ impl Reptra {
                 .read_events_blocking(buffer.as_mut())
                 .unwrap();
             for event in events {
-                if event.mask != EventMask::IGNORED {
+                if event.mask != EventMask::IGNORED
+                    && !self.file_watcher.is_freezed(&event.wd).await
+                {
                     self.file_watcher.display_event(&event).await;
                     self.replica.handle_event(&event).await.unwrap();
                 }

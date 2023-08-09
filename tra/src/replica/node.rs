@@ -7,6 +7,7 @@ use tonic::Request;
 
 use crate::{
     config::RpcChannel,
+    error,
     replica::Meta,
     reptra::{QueryReq, QueryRes, RsyncClient},
     timestamp::{SingletonTime, VectorTime},
@@ -360,7 +361,7 @@ impl Node {
 
     // always sync remote -> local
     #[async_recursion]
-    pub async fn handle_sync(&self, mut op: SyncOption, mut walk: Vec<String>) -> MyResult<()> {
+    pub async fn handle_sync(&self, op: SyncOption, mut walk: Vec<String>) -> MyResult<()> {
         if !walk.is_empty() {
             // not the target node yet
             let mut cur_data = self.data.write().await;
@@ -485,13 +486,14 @@ impl Node {
 
     // sync a single remove file to local
     pub async fn sync_file(&self, mut op: SyncOption) -> MyResult<()> {
-        let data = self.data.write().await;
+        let mut data = self.data.write().await;
         let remote = op.query_path(&self.path).await?;
 
         if data.status == NodeStatus::Exist && !remote.deleted {
             if data.mod_time.leq(&remote.sync_time) {
                 // local_m <= remote_s
                 // override the local file
+                self.override_sync().await?;
                 return Ok(());
             } else if data.sync_time.geq(&remote.mod_time) {
                 // local_s >= remote_m
@@ -506,6 +508,7 @@ impl Node {
                 if data.create_time.leq_vec(&remote.sync_time) {
                     if data.mod_time.leq(&remote.sync_time) {
                         // delete the local file
+                        self.delete_sync().await?;
                         todo!();
                     } else {
                         // report conflicts
@@ -527,8 +530,8 @@ impl Node {
                         todo!()
                     }
                 } else {
-                    // copy the file
-                    self.meta.sync_bytes(&self.path, op.client).await?;
+                    // create the local file and copy the content
+                    self.create_sync(&mut data).await?;
                     return Ok(());
                 }
             }
@@ -540,7 +543,9 @@ impl Node {
         todo!()
     }
 
-    pub async fn create_sync(&self) -> MyResult<()> {
+    pub async fn create_sync(&self, data: &mut NodeData) -> MyResult<()> {
+        error!("file path {}", self.path.display());
+        error!("file status {:?}", data.status);
         todo!()
     }
 
