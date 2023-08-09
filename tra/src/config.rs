@@ -34,3 +34,7 @@ macro_rules! unwrap_res {
         }
     };
 }
+
+pub fn sync_folder_prefix(id: i32) -> String {
+    format!("{}replica-{}", TMP_PATH, id)
+}

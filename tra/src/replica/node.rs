@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use async_recursion::async_recursion;
 use inotify::{EventMask, WatchDescriptor};
@@ -12,6 +12,8 @@ use crate::{
     timestamp::{SingletonTime, VectorTime},
     unwrap_res, MyResult,
 };
+
+use super::path_local::PathLocal;
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum NodeStatus {
@@ -39,7 +41,7 @@ pub struct NodeData {
 
 pub struct Node {
     pub meta: Arc<Meta>,
-    pub path: Box<PathBuf>,
+    pub path: Box<PathLocal>,
     pub is_dir: bool,
     pub data: RwLock<NodeData>,
 }
@@ -100,11 +102,11 @@ impl QueryRes {
 }
 
 impl SyncOption {
-    pub async fn query_path(&mut self, path: &PathBuf) -> MyResult<QueryRes> {
+    pub async fn query_path(&mut self, path: &PathLocal) -> MyResult<QueryRes> {
         Ok(self
             .client
             .query(Request::new(QueryReq {
-                path: path.to_str().unwrap().to_string(),
+                path_rel: path.to_rel(),
             }))
             .await
             .or(Err("query failed"))?
@@ -137,7 +139,9 @@ impl SyncOption {
 
 impl Node {
     pub fn file_name(&self) -> String {
-        self.path.file_name().unwrap().to_str().unwrap().to_string()
+        self.path
+            .file_name()
+            .map_or(format!("replica-{}", self.meta.id), |s| s)
     }
 
     #[async_recursion]
@@ -197,8 +201,7 @@ impl Node {
     }
 
     // the replica's bedrock
-    pub async fn new_base_node(meta: &Arc<Meta>) -> Self {
-        let path = meta.prefix.clone();
+    pub async fn new_base_node(meta: &Arc<Meta>, path: PathLocal) -> Self {
         let data = NodeData {
             children: HashMap::new(),
             mod_time: VectorTime::new_empty(meta.id),
@@ -215,7 +218,7 @@ impl Node {
         }
     }
 
-    pub async fn new_from_create(path: &PathBuf, time: i32, meta: &Arc<Meta>) -> Self {
+    pub async fn new_from_create(path: &PathLocal, time: i32, meta: &Arc<Meta>) -> Self {
         let create_time = SingletonTime::new(meta.id, time);
         let data = NodeData {
             children: HashMap::new(),
@@ -227,7 +230,7 @@ impl Node {
         };
         Node {
             path: Box::new(path.clone()),
-            is_dir: meta.check_is_dir(path),
+            is_dir: path.is_dir(),
             meta: meta.clone(),
             data: RwLock::new(data),
         }
@@ -238,7 +241,7 @@ impl Node {
     pub async fn new_tmp(
         op: &SyncOption,
         meta: &Arc<Meta>,
-        tmp_path: &PathBuf,
+        tmp_path: &PathLocal,
         sync_time: &VectorTime,
     ) -> Self {
         let data = NodeData {
@@ -263,13 +266,12 @@ impl Node {
     // scan all the files (which are not detected before) in the directory
     #[async_recursion]
     pub async fn scan_all(&self, init_time: i32) -> MyResult<()> {
-        let static_path = self.path.as_path();
-        let mut sub_files = unwrap_res!(tokio::fs::read_dir(static_path)
+        let mut sub_files = unwrap_res!(tokio::fs::read_dir(self.path.as_ref())
             .await
             .or(Err("Scan All Error : read dir error")));
         while let Some(sub_file) = sub_files.next_entry().await.unwrap() {
-            let child =
-                Arc::new(Node::new_from_create(&sub_file.path(), init_time, &self.meta).await);
+            let path = PathLocal::new_from_local(self.path.prefix(), sub_file.path());
+            let child = Arc::new(Node::new_from_create(&path, init_time, &self.meta).await);
             if child.is_dir {
                 child.scan_all(init_time).await?;
             }
@@ -371,7 +373,7 @@ impl Node {
                 let tmp_node = Node::new_tmp(
                     &op,
                     &self.meta,
-                    &self.path.join(child_name),
+                    &self.path.join_name(child_name),
                     &cur_data.sync_time,
                 )
                 .await;
@@ -391,7 +393,7 @@ impl Node {
 
 impl Node {
     pub async fn create_child(&self, name: &String, time: i32) -> MyResult<()> {
-        let child_path = self.path.join(name);
+        let child_path = self.path.join_name(name);
         let child = Arc::new(Node::new_from_create(&child_path, time, &self.meta).await);
         if child.is_dir {
             let res = child.scan_all(time).await;
@@ -526,7 +528,7 @@ impl Node {
                     }
                 } else {
                     // copy the file
-                    self.meta.sync_bytes(self.path.as_path(), op.client).await?;
+                    self.meta.sync_bytes(&self.path, op.client).await?;
                     return Ok(());
                 }
             }

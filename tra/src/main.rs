@@ -52,17 +52,17 @@ async fn main() {
                 if args.len() == 4 && args[0] == "sync" {
                     let id1: i32 = args[1].parse().unwrap();
                     let id2: i32 = args[2].parse().unwrap();
-                    let path = args[3].to_string();
+                    let path_rel = args[3].to_string();
                     if id1 as usize <= BASE_REP_NUM
                         && id2 as usize <= BASE_REP_NUM
-                        && check_legal(&path)
+                        && check_legal(&path_rel)
                     {
                         let addr2 = centra.get_addr(id2);
                         let channel = channel_connect(&addr2).await.unwrap();
                         let mut client = RsyncClient::new(channel);
                         let request = Request::new(SyncReq {
                             port: centra.get_addr(id1).port() as i32,
-                            path: path.clone(),
+                            path_rel: path_rel.clone(),
                             is_dir: false,
                         });
                         info!(
@@ -71,7 +71,7 @@ async fn main() {
                             centra.get_addr(id1).port(),
                             id2,
                             centra.get_addr(id2).port(),
-                            path
+                            path_rel
                         );
                         client.request_sync(request).await.unwrap();
                     }

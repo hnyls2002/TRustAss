@@ -8,7 +8,7 @@ use tonic::{Request, Response, Status};
 use crate::{
     config::RpcChannel,
     machine::{channel_connect, ServeAddr},
-    replica::Replica,
+    replica::{meta::read_bytes, path_local::PathLocal, Replica},
     reptra::FetchPatchReq,
     MyResult,
 };
@@ -37,7 +37,7 @@ impl PeerServer {
             .await?;
         let client = RsyncClient::new(query_channel);
         self.replica
-            .handle_sync(&sync_req.path, sync_req.is_dir, client)
+            .handle_sync(&sync_req.path_rel, sync_req.is_dir, client)
             .await?;
         Ok(())
     }
@@ -48,15 +48,12 @@ impl Rsync for PeerServer {
     /// get the signature and diff, send back delta
     async fn fetch_patch(&self, req: Request<FetchPatchReq>) -> Result<Response<Patch>, Status> {
         let inner = req.into_inner();
-        let path = inner.path;
+        let path = PathLocal::new_from_rel(&self.replica.base_node.path.prefix(), &inner.path_rel);
         let sig = Signature::deserialize(inner.sig).or(Err(Status::invalid_argument(
             "signature deserialized failed",
         )))?;
         let index_sig = sig.index();
-        let data = self
-            .replica
-            .meta
-            .read_bytes(&path)
+        let data = read_bytes(&path)
             .await
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
         let mut delta: Vec<u8> = Vec::new();
@@ -66,11 +63,9 @@ impl Rsync for PeerServer {
 
     /// query the info of one file(dir)
     async fn query(&self, req: Request<QueryReq>) -> Result<Response<QueryRes>, Status> {
-        let inner = req.into_inner();
-        let path = inner.path;
         let res = self
             .replica
-            .handle_query(path)
+            .handle_query(&req.into_inner().path_rel)
             .await
             .map_err(|e| Status::invalid_argument(e.as_str()))?;
         Ok(Response::new(res))
@@ -81,7 +76,8 @@ impl Rsync for PeerServer {
         sync_msg: Request<SyncReq>,
     ) -> Result<Response<BoolResult>, Status> {
         let sync_msg = sync_msg.into_inner();
-        let path = sync_msg.path;
+        let path =
+            PathLocal::new_from_rel(&self.replica.base_node.path.prefix(), &sync_msg.path_rel);
         let target_addr = ServeAddr::new(sync_msg.port as u16);
         let channel = self
             .get_channel(&target_addr)

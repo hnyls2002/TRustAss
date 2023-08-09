@@ -1,18 +1,15 @@
 pub mod file_watcher;
 pub mod meta;
 pub mod node;
+pub mod path_local;
 
-use std::{
-    ffi::OsStr,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{ffi::OsStr, sync::Arc};
 
 use inotify::{Event, EventMask};
 use tokio::sync::RwLock;
 
 use crate::{
-    config::RpcChannel,
+    config::{sync_folder_prefix, RpcChannel},
     reptra::{QueryRes, RsyncClient},
     unwrap_res, MyResult,
 };
@@ -21,6 +18,7 @@ use self::{
     file_watcher::WatchIfc,
     meta::Meta,
     node::{ModOption, ModType, Node, SyncOption},
+    path_local::PathLocal,
 };
 
 pub struct Replica {
@@ -42,12 +40,13 @@ impl Replica {
 
     pub async fn new(id: i32, watch: WatchIfc) -> Self {
         let meta = Arc::new(Meta::new(id, watch));
-        if !meta.check_exist(&meta.prefix) {
-            tokio::fs::create_dir(&meta.prefix).await.unwrap();
-        } else if !meta.check_is_dir(&meta.prefix) {
+        let path = PathLocal::new_from_rel(sync_folder_prefix(id), "");
+        if !path.exists() {
+            tokio::fs::create_dir(&path).await.unwrap();
+        } else if !path.is_dir() {
             panic!("The root path is not a directory!");
         }
-        let base_node = Node::new_base_node(&meta).await;
+        let base_node = Node::new_base_node(&meta, path).await;
         let base_node = Arc::new(base_node);
         Self {
             meta,
@@ -84,7 +83,7 @@ impl Replica {
             .await
             .expect("should have this file watched")
             .clone();
-        let walk = self.meta.decompose_absolute(&path);
+        let walk = path.get_walk();
         let op = ModOption {
             ty: ModType::from_mask(&event.mask),
             time: self.add_counter().await,
@@ -94,15 +93,15 @@ impl Replica {
         self.base_node.handle_modify(walk, op).await
     }
 
-    pub async fn handle_query(&self, path: impl AsRef<Path>) -> MyResult<QueryRes> {
-        let path = PathBuf::from(path.as_ref());
-        let walk = self.meta.decompose_absolute(&path);
+    pub async fn handle_query(&self, path: &String) -> MyResult<QueryRes> {
+        let path = PathLocal::new_from_rel(&self.base_node.path.prefix(), path);
+        let walk = path.get_walk();
         self.base_node.handle_query(walk).await
     }
 
     pub async fn handle_sync(
         &self,
-        path: impl AsRef<Path>,
+        path: &String,
         is_dir: bool,
         client: RsyncClient<RpcChannel>,
     ) -> MyResult<()> {
@@ -111,7 +110,8 @@ impl Replica {
             is_dir,
             client,
         };
-        let walk = self.meta.decompose_absolute(&PathBuf::from(path.as_ref()));
+        let path = PathLocal::new_from_rel(self.base_node.path.prefix(), path);
+        let walk = path.get_walk();
         self.base_node.handle_sync(op, walk).await?;
         Ok(())
     }

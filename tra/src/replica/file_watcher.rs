@@ -1,15 +1,12 @@
-use std::{
-    collections::HashMap,
-    ffi::OsStr,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{collections::HashMap, ffi::OsStr, path::Path, sync::Arc};
 
 use inotify::{Event, Inotify, WatchDescriptor, WatchMask, Watches};
 use lazy_static::lazy_static;
 use tokio::sync::RwLock;
 
 use crate::{info, MyResult};
+
+use super::path_local::PathLocal;
 
 lazy_static! {
     static ref WATCH_EVENTS: WatchMask = WatchMask::CREATE
@@ -21,15 +18,15 @@ lazy_static! {
 
 pub struct FileWatcher {
     pub inotify: Inotify,
-    pub wd_map: Arc<RwLock<HashMap<WatchDescriptor, PathBuf>>>,
-    pub path_map: Arc<RwLock<HashMap<PathBuf, WatchDescriptor>>>,
+    pub wd_map: Arc<RwLock<HashMap<WatchDescriptor, PathLocal>>>,
+    pub path_map: Arc<RwLock<HashMap<PathLocal, WatchDescriptor>>>,
     pub cnt: i32,
 }
 
 #[derive(Clone)]
 pub struct WatchIfc {
     watches: Watches,
-    wd_map: Arc<RwLock<HashMap<WatchDescriptor, PathBuf>>>,
+    wd_map: Arc<RwLock<HashMap<WatchDescriptor, PathLocal>>>,
 }
 
 impl FileWatcher {
@@ -61,12 +58,12 @@ impl FileWatcher {
 }
 
 impl WatchIfc {
-    pub async fn add_watch(&self, path: &PathBuf) -> Option<WatchDescriptor> {
+    pub async fn add_watch(&self, path: &PathLocal) -> Option<WatchDescriptor> {
         // watching directory is enough
         let mut tmp_watches = self.watches.clone();
         if path.is_dir() {
             info!("add_watches: {}", path.display());
-            let wd = tmp_watches.add(path.as_path(), *WATCH_EVENTS).unwrap();
+            let wd = tmp_watches.add(path, *WATCH_EVENTS).unwrap();
             self.wd_map.write().await.insert(wd.clone(), path.clone());
             Some(wd)
         } else {
@@ -84,7 +81,7 @@ impl WatchIfc {
         Ok(())
     }
 
-    pub async fn query_path(&self, wd: &WatchDescriptor) -> Option<PathBuf> {
+    pub async fn query_path(&self, wd: &WatchDescriptor) -> Option<PathLocal> {
         self.wd_map.read().await.get(wd).cloned()
     }
 }

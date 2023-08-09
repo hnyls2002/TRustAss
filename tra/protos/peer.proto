@@ -3,7 +3,7 @@ syntax = "proto3";
 package peer;
 
 message FetchPatchReq {
-  string path = 1;
+  string path_rel = 1;
   bytes sig = 2;
 }
 
@@ -12,13 +12,13 @@ message Patch { bytes delta = 1; }
 // ask the callee machine to fetch patch from machine(port)
 message SyncReq {
   int32 port = 1;
-  string path = 2;
+  string path_rel = 2; // relative path without prefix
   bool is_dir = 3;
 }
 
 message BoolResult { bool success = 1; }
 
-message QueryReq { string path = 1; }
+message QueryReq { string path_rel = 1; }
 
 message QueryRes {
   int32 id = 1;
