@@ -43,7 +43,6 @@ pub struct NodeData {
 pub struct Node {
     pub meta: Arc<Meta>,
     pub path: Box<PathLocal>,
-    pub is_dir: bool,
     pub data: RwLock<NodeData>,
 }
 
@@ -164,7 +163,7 @@ impl Node {
                 }
             }
         }
-        if self.is_dir {
+        if self.path.is_dir() {
             print!("\x1b[1;34m{}\x1b[0m", self.file_name());
         } else {
             print!("{}", self.file_name());
@@ -191,7 +190,9 @@ impl Node {
             }
         }
 
-        undeleted.sort_by(|a, b| (a.is_dir, a.file_name()).cmp(&(b.is_dir, b.file_name())));
+        undeleted.sort_by(|a, b| {
+            (a.path.is_dir(), a.file_name()).cmp(&(b.path.is_dir(), b.file_name()))
+        });
 
         for child in &undeleted {
             let now_flag = child.file_name() == undeleted.last().unwrap().file_name();
@@ -214,7 +215,6 @@ impl Node {
         Self {
             path: Box::new(path),
             meta: meta.clone(),
-            is_dir: true,
             data: RwLock::new(data),
         }
     }
@@ -231,7 +231,6 @@ impl Node {
         };
         Node {
             path: Box::new(path.clone()),
-            is_dir: path.is_dir(),
             meta: meta.clone(),
             data: RwLock::new(data),
         }
@@ -239,12 +238,7 @@ impl Node {
 
     // the new temporary node which is not exist in the file system
     // when any ground sycnchronization happens, we will make it exist
-    pub async fn new_tmp(
-        op: &SyncOption,
-        meta: &Arc<Meta>,
-        tmp_path: &PathLocal,
-        sync_time: &VectorTime,
-    ) -> Self {
+    pub async fn new_tmp(meta: &Arc<Meta>, tmp_path: &PathLocal, sync_time: &VectorTime) -> Self {
         let data = NodeData {
             children: HashMap::new(),
             mod_time: VectorTime::default(),
@@ -256,7 +250,6 @@ impl Node {
         Self {
             meta: meta.clone(),
             path: Box::new(tmp_path.clone()),
-            is_dir: op.is_dir,
             data: RwLock::new(data),
         }
     }
@@ -273,7 +266,7 @@ impl Node {
         while let Some(sub_file) = sub_files.next_entry().await.unwrap() {
             let path = PathLocal::new_from_local(self.path.prefix(), sub_file.path());
             let child = Arc::new(Node::new_from_create(&path, init_time, &self.meta).await);
-            if child.is_dir {
+            if child.path.is_dir() {
                 child.scan_all(init_time).await?;
             }
             self.data
@@ -366,34 +359,57 @@ impl Node {
         op: SyncOption,
         mut walk: Vec<String>,
         parent_wd: Option<WatchDescriptor>,
-    ) -> MyResult<()> {
+    ) -> MyResult<bool> {
         if !walk.is_empty() {
             // not the target node yet
             let mut cur_data = self.data.write().await;
             let child_name = walk.pop().unwrap();
-            if let Some(child) = cur_data.children.get(&child_name) {
+            if cur_data.children.get(&child_name).is_some() {
                 // can find the child
-                child.handle_sync(op, walk, cur_data.wd.clone()).await?;
+                let child = cur_data.children.get(&child_name).unwrap().clone();
+                let sync_flag = child
+                    .handle_sync(op, walk, cur_data.wd.clone().or(parent_wd))
+                    .await?;
+                if sync_flag {
+                    cur_data.mod_time.update(&child.data.read().await.mod_time);
+                }
+                Ok(sync_flag)
             } else {
                 // child is deleted or not exist
                 let tmp_node = Node::new_tmp(
-                    &op,
                     &self.meta,
                     &self.path.join_name(child_name),
                     &cur_data.sync_time,
                 )
                 .await;
-                tmp_node.handle_sync(op, walk, cur_data.wd.clone()).await?;
+                let sync_flag = tmp_node
+                    .handle_sync(op, walk, cur_data.wd.clone().or(parent_wd))
+                    .await?;
+                if sync_flag {
+                    // there is some change happen
+                    cur_data
+                        .mod_time
+                        .update(&tmp_node.data.read().await.sync_time);
+                    cur_data
+                        .children
+                        .insert(tmp_node.file_name(), Arc::new(tmp_node));
+
+                    if cur_data.status == NodeStatus::Deleted {
+                        // maybe cur_data's create time don't need to be updated
+                        cur_data.status = NodeStatus::Exist;
+                        cur_data.wd = self.meta.watch.add_watch(&self.path).await;
+                    }
+                }
+                Ok(sync_flag)
             }
         } else {
             // find the target file(dir) to be synchronized
             if op.is_dir {
-                self.sync_dir(op.clone()).await?;
+                self.sync_dir(op.clone()).await
             } else {
-                self.sync_file(op.clone(), parent_wd).await?;
+                self.sync_file(op.clone(), parent_wd).await
             }
         }
-        Ok(())
     }
 }
 
@@ -401,7 +417,7 @@ impl Node {
     pub async fn create_child(&self, name: &String, time: i32) -> MyResult<()> {
         let child_path = self.path.join_name(name);
         let child = Arc::new(Node::new_from_create(&child_path, time, &self.meta).await);
-        if child.is_dir {
+        if child.path.is_dir() {
             let res = child.scan_all(time).await;
             unwrap_res!(res);
         }
@@ -439,8 +455,6 @@ impl Node {
                     "Delet Error : Watcher is not automatically removed when \"rm\" a file".into(),
                 );
             }
-        } else if self.is_dir {
-            return Err("Delete Error : No Watch Descriptor".into());
         }
         Ok(())
     }
@@ -465,22 +479,20 @@ impl Node {
                 .watch
                 .remove_watch(self.path.as_ref(), &wd)
                 .await?;
-        } else if self.is_dir {
-            return Err("Delete Error : No Watch Descriptor".into());
         }
         Ok(())
     }
 
     // sync a remote folder -> local folder
     #[async_recursion]
-    pub async fn sync_dir(&self, mut op: SyncOption) -> MyResult<()> {
+    pub async fn sync_dir(&self, mut op: SyncOption) -> MyResult<bool> {
         let data = self.data.write().await;
         let remote = op.query_path(&self.path).await?;
         if (remote.deleted && data.status == NodeStatus::Deleted)
             || (!remote.deleted && data.sync_time.geq(&remote.mod_time))
         {
             // skip
-            return Ok(());
+            return Ok(false);
         } else {
             for (_, child) in data.children.iter() {
                 child.sync_dir(op.clone()).await?;
@@ -494,21 +506,22 @@ impl Node {
         &self,
         mut op: SyncOption,
         parent_wd: Option<WatchDescriptor>,
-    ) -> MyResult<()> {
+    ) -> MyResult<bool> {
         let data = self.data.write().await.clone();
         let remote = op.query_path(&self.path).await?;
         // the rw_lock is not required here
+        let wd = parent_wd.expect("parent_wd is None");
 
         if data.status == NodeStatus::Exist && !remote.deleted {
             if data.mod_time.leq(&remote.sync_time) {
                 // local_m <= remote_s
                 // override the local file
                 self.override_sync().await?;
-                return Ok(());
+                return Ok(true);
             } else if data.sync_time.geq(&remote.mod_time) {
                 // local_s >= remote_m
                 // do nothing
-                return Ok(());
+                return Ok(false);
             } else {
                 // report conflicts
                 todo!()
@@ -520,14 +533,14 @@ impl Node {
                     if data.mod_time.leq(&remote.sync_time) {
                         // delete the local file
                         self.delete_sync().await?;
-                        todo!();
+                        return Ok(true);
                     } else {
                         // report conflicts
                         todo!()
                     }
                 } else {
                     // do nothing
-                    return Ok(());
+                    return Ok(false);
                 }
             } else {
                 // remote -> local(deleted)
@@ -535,15 +548,15 @@ impl Node {
                 if data.sync_time.geq_singleton(id, time) {
                     if data.sync_time.geq(&remote.mod_time) {
                         // do nothing
-                        return Ok(());
+                        return Ok(false);
                     } else {
                         // report conflicts
                         todo!()
                     }
                 } else {
                     // create the local file and copy the content
-                    self.create_sync(op, &remote, parent_wd).await?;
-                    return Ok(());
+                    self.create_sync(op, &remote, &wd).await?;
+                    return Ok(true);
                 }
             }
         }
@@ -558,17 +571,13 @@ impl Node {
         &self,
         op: SyncOption,
         remote: &QueryRes,
-        parent_wd: Option<WatchDescriptor>,
+        wd: &WatchDescriptor,
     ) -> MyResult<()> {
         let mut cur_data = self.data.write().await;
         assert!(cur_data.wd.is_none());
-        if let Some(wd) = parent_wd {
-            self.meta.watch.freeze_watch(&wd).await;
-            sync_bytes(&self.path, op.client).await?;
-            self.meta.watch.unfreeze_watch(&wd).await;
-        } else {
-            sync_bytes(&self.path, op.client).await?;
-        }
+        self.meta.watch.freeze_watch(&wd).await;
+        sync_bytes(&self.path, op.client).await?;
+        self.meta.watch.unfreeze_watch(&wd).await;
         cur_data.mod_time = remote.mod_time.clone().into();
         cur_data.sync_time = remote.sync_time.clone().into();
         cur_data.sync_time.update_one(self.meta.id, op.time);

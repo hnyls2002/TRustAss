@@ -44,7 +44,7 @@ impl Rsync for PeerServer {
         let index_sig = sig.index();
         let data = read_bytes(&path)
             .await
-            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+            .map_err(|e| Status::invalid_argument(e))?;
         let mut delta: Vec<u8> = Vec::new();
         diff(&index_sig, &data, &mut delta).or(Err(Status::invalid_argument("diff failed")))?;
         Ok(Response::new(Patch { delta }))
@@ -56,7 +56,7 @@ impl Rsync for PeerServer {
             .replica
             .handle_query(&req.into_inner().path_rel)
             .await
-            .map_err(|e| Status::invalid_argument(e.as_str()))?;
+            .map_err(|e| Status::invalid_argument(e))?;
         Ok(Response::new(res))
     }
 
@@ -65,12 +65,12 @@ impl Rsync for PeerServer {
         let query_channel = self
             .get_channel(&ServeAddr::new(inner.port as u16))
             .await
-            .or(Err(Status::invalid_argument("get channel failed")))?;
+            .map_err(|e| Status::invalid_argument(e))?;
         let client = RsyncClient::new(query_channel);
         self.replica
             .handle_sync(&inner.path_rel, inner.is_dir, client)
             .await
-            .or(Err(Status::invalid_argument("sync failed")))?;
+            .map_err(|e| Status::invalid_argument(e))?;
         Ok(Response::new(BoolResult { success: true }))
     }
 }

@@ -59,6 +59,16 @@ impl VectorTime {
         }
     }
 
+    pub fn update(&mut self, other: &Self) {
+        for (id, time) in &other.times {
+            if let Some(old) = self.times.get(id) {
+                self.times.insert(*id, std::cmp::max(*old, *time));
+            } else {
+                self.times.insert(*id, *time);
+            }
+        }
+    }
+
     pub fn leq(&self, other: &HashMap<i32, i32>) -> bool {
         for (id, time) in &self.times {
             assert!(*time != 0);

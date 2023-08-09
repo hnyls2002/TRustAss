@@ -39,18 +39,23 @@ pub async fn write_bytes(path: &PathLocal, data: impl AsRef<[u8]>) -> MyResult<(
             .truncate(true)
             .open(path)
             .await
-            .or(Err("Sync Bytes : open file failed"))?
+            .or(Err("Write Bytes : open file failed"))?
     } else {
+        let mut parent = path.clone();
+        parent.pop().ok_or("Write Bytes : get parent path failed")?;
+        tokio::fs::create_dir_all(parent)
+            .await
+            .or(Err("Write Bytes : create dir failed"))?;
         tokio::fs::File::create(path)
             .await
-            .or(Err("Sync Bytes : create file failed"))?
+            .or(Err("Write Bytes : create file failed"))?
     };
     file.write_all(data.as_ref())
         .await
-        .or(Err("Sync Bytes : write bytes to file failed"))?;
+        .or(Err("Write Bytes : write bytes to file failed"))?;
     file.flush()
         .await
-        .or(Err("Sync Bytes : flush file failed"))?;
+        .or(Err("Write Bytes : flush file failed"))?;
     Ok(())
 }
 
