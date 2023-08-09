@@ -89,9 +89,9 @@ impl Reptra {
                 {
                     self.file_watcher.display_event(&event).await;
                     self.replica.handle_event(&event).await.unwrap();
+                    self.replica.tree(true).await;
                 }
             }
-            self.replica.tree(true).await;
         }
     }
 }

@@ -119,7 +119,7 @@ impl Replica {
             is_dir,
             client,
         };
-        self.base_node.handle_sync(op, walk).await?;
+        self.base_node.handle_sync(op, walk, None).await?;
         Ok(())
     }
 

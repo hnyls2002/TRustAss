@@ -361,14 +361,19 @@ impl Node {
 
     // always sync remote -> local
     #[async_recursion]
-    pub async fn handle_sync(&self, op: SyncOption, mut walk: Vec<String>) -> MyResult<()> {
+    pub async fn handle_sync(
+        &self,
+        op: SyncOption,
+        mut walk: Vec<String>,
+        parent_wd: Option<WatchDescriptor>,
+    ) -> MyResult<()> {
         if !walk.is_empty() {
             // not the target node yet
             let mut cur_data = self.data.write().await;
             let child_name = walk.pop().unwrap();
             if let Some(child) = cur_data.children.get(&child_name) {
                 // can find the child
-                child.handle_sync(op, walk).await?;
+                child.handle_sync(op, walk, cur_data.wd.clone()).await?;
             } else {
                 // child is deleted or not exist
                 let tmp_node = Node::new_tmp(
@@ -378,14 +383,14 @@ impl Node {
                     &cur_data.sync_time,
                 )
                 .await;
-                tmp_node.handle_sync(op, walk).await?;
+                tmp_node.handle_sync(op, walk, cur_data.wd.clone()).await?;
             }
         } else {
             // find the target file(dir) to be synchronized
             if op.is_dir {
                 self.sync_dir(op.clone()).await?;
             } else {
-                self.sync_file(op.clone()).await?;
+                self.sync_file(op.clone(), parent_wd).await?;
             }
         }
         Ok(())
@@ -485,7 +490,11 @@ impl Node {
     }
 
     // sync a single remove file to local
-    pub async fn sync_file(&self, mut op: SyncOption) -> MyResult<()> {
+    pub async fn sync_file(
+        &self,
+        mut op: SyncOption,
+        parent_wd: Option<WatchDescriptor>,
+    ) -> MyResult<()> {
         let data = self.data.write().await.clone();
         let remote = op.query_path(&self.path).await?;
         // the rw_lock is not required here
@@ -533,7 +542,7 @@ impl Node {
                     }
                 } else {
                     // create the local file and copy the content
-                    self.create_sync(op, &remote).await?;
+                    self.create_sync(op, &remote, parent_wd).await?;
                     return Ok(());
                 }
             }
@@ -545,10 +554,21 @@ impl Node {
         todo!()
     }
 
-    pub async fn create_sync(&self, op: SyncOption, remote: &QueryRes) -> MyResult<()> {
+    pub async fn create_sync(
+        &self,
+        op: SyncOption,
+        remote: &QueryRes,
+        parent_wd: Option<WatchDescriptor>,
+    ) -> MyResult<()> {
         let mut cur_data = self.data.write().await;
         assert!(cur_data.wd.is_none());
-        sync_bytes(&self.path, op.client).await?;
+        if let Some(wd) = parent_wd {
+            self.meta.watch.freeze_watch(&wd).await;
+            sync_bytes(&self.path, op.client).await?;
+            self.meta.watch.unfreeze_watch(&wd).await;
+        } else {
+            sync_bytes(&self.path, op.client).await?;
+        }
         cur_data.mod_time = remote.mod_time.clone().into();
         cur_data.sync_time = remote.sync_time.clone().into();
         cur_data.sync_time.update_one(self.meta.id, op.time);
