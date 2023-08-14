@@ -78,3 +78,10 @@ pub async fn sync_bytes(path: &PathLocal, mut client: RsyncClient<RpcChannel>) -
     info!("The size of patch is {}", delta.len());
     Ok(())
 }
+
+pub async fn delete_file(path: &PathLocal) -> MyResult<()> {
+    tokio::fs::remove_file(path)
+        .await
+        .or(Err("Delete File : remove file failed"))?;
+    Ok(())
+}

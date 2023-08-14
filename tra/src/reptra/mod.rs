@@ -16,7 +16,7 @@ use crate::{
 
 use inotify::EventMask;
 use peer_server::PeerServer;
-use std::{collections::HashMap, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 use tonic::{transport::Server, Request};
 
@@ -31,7 +31,7 @@ pub struct Reptra {
     pub serve_addr: ServeAddr,
     pub service_handle: ServiceHandle,
     pub replica: Arc<Replica>,
-    pub file_watcher: FileWatcher,
+    pub file_watcher: RefCell<FileWatcher>,
 }
 
 impl Reptra {
@@ -41,7 +41,7 @@ impl Reptra {
         let watch = file_watcher.get_ifc();
         let replica = Arc::new(Replica::new(id, watch).await);
         replica.init_all().await?;
-        replica.tree(false).await;
+        // replica.tree(false).await;
         let peer_server = PeerServer {
             replica: replica.clone(),
             channels: Arc::new(RwLock::new(HashMap::new())),
@@ -57,7 +57,7 @@ impl Reptra {
             serve_addr,
             service_handle,
             replica,
-            file_watcher,
+            file_watcher: RefCell::new(file_watcher),
         })
     }
 
@@ -75,19 +75,20 @@ impl Reptra {
         Ok(())
     }
 
-    pub async fn watching(&mut self) -> ! {
+    pub async fn watching(&self) -> ! {
         let mut buffer = [0; CHANNEL_BUFFER_SIZE];
         loop {
             let events = self
                 .file_watcher
+                .borrow_mut()
                 .inotify
                 .read_events_blocking(buffer.as_mut())
                 .unwrap();
             for event in events {
                 if event.mask != EventMask::IGNORED
-                    && !self.file_watcher.is_freezed(&event.wd).await
+                    && !self.file_watcher.borrow().is_freezed(&event.wd).await
                 {
-                    self.file_watcher.display_event(&event).await;
+                    // self.file_watcher.display_event(&event).await;
                     self.replica.handle_event(&event).await.unwrap();
                     self.replica.tree(true).await;
                 }

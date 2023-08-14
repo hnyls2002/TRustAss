@@ -7,7 +7,12 @@ use tonic::Request;
 
 use crate::{
     config::RpcChannel,
-    replica::{meta::sync_bytes, Meta},
+    conflicts::conflicts_resolve,
+    info,
+    replica::{
+        meta::{delete_file, sync_bytes},
+        Meta,
+    },
     reptra::{QueryReq, QueryRes, RsyncClient},
     timestamp::{SingletonTime, VectorTime},
     unwrap_res, MyResult,
@@ -112,29 +117,6 @@ impl SyncOption {
             .or(Err("query failed"))?
             .into_inner())
     }
-
-    // pub async fn copy_file(&self, path : &PathBuf ) -> MyResult<()> {
-    //     let data = self.replica.rep_meta.read_bytes(path).await?;
-    //     let sig = Signature::calculate(&data, SIG_OPTION);
-    //     let request = FetchPatchReq {
-    //         path: path.clone(),
-    //         sig: Vec::from(sig.serialized()),
-    //     };
-    //     let channel = self.get_channel(target_addr).await?;
-    //     let mut client = RsyncClient::new(channel);
-    //     let patch = client
-    //         .fetch_patch(request)
-    //         .await
-    //         .or(Err("fetch patch failed"))?;
-    //     let delta = patch.into_inner().delta;
-    //     let mut out: Vec<u8> = Vec::new();
-    //     apply(&data, &delta, &mut out).or(Err("apply failed"))?;
-    //     self.replica.rep_meta.sync_bytes(path, out).await?;
-    //     info!("The size of data is {}", data.len());
-    //     info!("The size of patch is {}", delta.len());
-    //     Ok(())
-    //     todo!()
-    // }
 }
 
 impl Node {
@@ -415,6 +397,11 @@ impl Node {
 
 impl Node {
     pub async fn create_child(&self, name: &String, time: i32) -> MyResult<()> {
+        info!(
+            "New file created : {} under the dir {}",
+            name,
+            self.path.display()
+        );
         let child_path = self.path.join_name(name);
         let child = Arc::new(Node::new_from_create(&child_path, time, &self.meta).await);
         if child.path.is_dir() {
@@ -428,6 +415,7 @@ impl Node {
     }
 
     pub async fn modify_self(&self, time: i32) -> MyResult<()> {
+        info!("File modified : {}", self.path.display());
         let mut data = self.data.write().await;
         data.mod_time.update_one(self.meta.id, time);
         data.sync_time.update_one(self.meta.id, time);
@@ -437,6 +425,7 @@ impl Node {
     // just one file, actually removed in file system
     // and the watch descriptor is automatically removed
     pub async fn delete_rm(&self, time: i32) -> MyResult<()> {
+        info!("File deleted : {}", self.path.display());
         let mut data = self.data.write().await;
         // the file system cannot delete a directory that is not empty
         for (_, child) in data.children.iter() {
@@ -470,6 +459,7 @@ impl Node {
         for (_, child) in data.children.iter() {
             unwrap_res!(child.delete_moved_from(time).await);
         }
+        info!("File deleted : {}", self.path.display());
         data.mod_time.clear();
         data.sync_time.update_one(self.meta.id, time);
         data.status = NodeStatus::Deleted;
@@ -507,39 +497,42 @@ impl Node {
         mut op: SyncOption,
         parent_wd: Option<WatchDescriptor>,
     ) -> MyResult<bool> {
-        let data = self.data.write().await.clone();
-        let remote = op.query_path(&self.path).await?;
+        let data = self.data.read().await.clone();
         // the rw_lock is not required here
+        let remote = op.query_path(&self.path).await?;
         let wd = parent_wd.expect("parent_wd is None");
-
         if data.status == NodeStatus::Exist && !remote.deleted {
+            // both exist
             if data.mod_time.leq(&remote.sync_time) {
                 // local_m <= remote_s
-                // override the local file
-                self.override_sync().await?;
+                info!("Both exist : override the local file");
+                self.sync_override_file(op, &remote, &wd).await?;
                 return Ok(true);
             } else if data.sync_time.geq(&remote.mod_time) {
                 // local_s >= remote_m
-                // do nothing
+                info!("Both exist : do nothing");
                 return Ok(false);
             } else {
                 // report conflicts
-                todo!()
+                info!("Both exist : diverged, conflicts happened");
+                conflicts_resolve();
+                return Ok(true);
             }
         } else if data.status == NodeStatus::Exist || remote.deleted == false {
             if remote.deleted {
                 // remote(deleted) -> local
                 if data.create_time.leq_vec(&remote.sync_time) {
                     if data.mod_time.leq(&remote.sync_time) {
-                        // delete the local file
-                        self.delete_sync().await?;
+                        info!("Sync from deleted : delete the local file");
+                        self.sync_delete_file(op, &remote, &wd).await?;
                         return Ok(true);
                     } else {
-                        // report conflicts
-                        todo!()
+                        info!("Sync from deleted : but changes diverged, conflicts happened");
+                        conflicts_resolve();
+                        return Ok(true);
                     }
                 } else {
-                    // do nothing
+                    info!("Sync from deleted : independent files, do nothing");
                     return Ok(false);
                 }
             } else {
@@ -547,27 +540,26 @@ impl Node {
                 let (id, time) = (remote.create_id, remote.create_time);
                 if data.sync_time.geq_singleton(id, time) {
                     if data.sync_time.geq(&remote.mod_time) {
-                        // do nothing
+                        info!("Sync to deleted : do nothing");
                         return Ok(false);
                     } else {
-                        // report conflicts
-                        todo!()
+                        info!("Sync to deleted : but changes diverged, conflicts happened");
+                        conflicts_resolve();
+                        return Ok(true);
                     }
                 } else {
-                    // create the local file and copy the content
-                    self.create_sync(op, &remote, &wd).await?;
+                    info!("Sync to deleted : independent files, create a new copy");
+                    self.sync_create_file(op, &remote, &wd).await?;
                     return Ok(true);
                 }
             }
+        } else {
+            info!("Neither exists : do nothing");
+            return Ok(false);
         }
-        todo!()
     }
 
-    pub async fn override_sync(&self) -> MyResult<()> {
-        todo!()
-    }
-
-    pub async fn create_sync(
+    pub async fn sync_override_file(
         &self,
         op: SyncOption,
         remote: &QueryRes,
@@ -575,60 +567,50 @@ impl Node {
     ) -> MyResult<()> {
         let mut cur_data = self.data.write().await;
         assert!(cur_data.wd.is_none());
-        self.meta.watch.freeze_watch(&wd).await;
+        self.meta.watch.freeze_watch(wd).await;
         sync_bytes(&self.path, op.client).await?;
-        self.meta.watch.unfreeze_watch(&wd).await;
+        self.meta.watch.unfreeze_watch(wd).await;
+        cur_data.mod_time.update(&remote.mod_time.clone().into());
+        cur_data.sync_time.update(&remote.sync_time.clone().into());
+        cur_data.sync_time.update_one(self.meta.id, op.time);
+        Ok(())
+    }
+
+    pub async fn sync_create_file(
+        &self,
+        op: SyncOption,
+        remote: &QueryRes,
+        wd: &WatchDescriptor,
+    ) -> MyResult<()> {
+        let mut cur_data = self.data.write().await;
+        assert!(cur_data.wd.is_none());
+        self.meta.watch.freeze_watch(wd).await;
+        sync_bytes(&self.path, op.client).await?;
+        self.meta.watch.unfreeze_watch(wd).await;
         cur_data.mod_time = remote.mod_time.clone().into();
         cur_data.sync_time = remote.sync_time.clone().into();
         cur_data.sync_time.update_one(self.meta.id, op.time);
         cur_data.create_time = SingletonTime::new(remote.create_id, remote.create_time);
         cur_data.status = NodeStatus::Exist;
-        cur_data.wd = self.meta.watch.add_watch(self.path.as_ref()).await;
+        // only a folder can have a watch descriptor
         Ok(())
     }
 
-    pub async fn delete_sync(&self) -> MyResult<()> {
-        todo!()
+    pub async fn sync_delete_file(
+        &self,
+        op: SyncOption,
+        remote: &QueryRes,
+        wd: &WatchDescriptor,
+    ) -> MyResult<()> {
+        let mut cur_data = self.data.write().await;
+        assert!(cur_data.wd.is_none());
+        self.meta.watch.freeze_watch(wd).await;
+        delete_file(&self.path).await?;
+        self.meta.watch.unfreeze_watch(wd).await;
+        cur_data.mod_time.clear();
+        cur_data.sync_time.update(&remote.sync_time.clone().into());
+        cur_data.sync_time.update_one(self.meta.id, op.time);
+        cur_data.status = NodeStatus::Deleted;
+        Ok(())
     }
-
-    /*
-    single file
-    A B(deleted)
-    if c_A <= s_B {
-        it is B that deletes the file
-        if m_A <= s_B{
-            A -> B : do nothing
-            B -> A : delete A
-        }
-        else {
-            report conflicts
-        }
-    }
-    else {
-        they are independent
-        A -> B : copy A to B
-        B -> A : do nothing
-    }
-     */
-
-    /*
-    directories
-    A B(deleted)
-    when a dir was created, its sync time is at least its creation time
-    if c_A <= s_B {
-        it is B that deletes the file
-        if m_A <= s_B{
-            A -> B : skip the dir
-            B -> A : traverse each subnode, to delete them
-        }
-        else {
-            traverse each subnode, handle next
-        }
-    }
-    else {
-        they are independent
-        A -> B : traverse each subnode, to copy them
-        B -> A : skip the dir
-    }
-    */
 }

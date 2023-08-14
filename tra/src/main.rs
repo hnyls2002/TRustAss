@@ -1,6 +1,7 @@
 pub mod centra;
 pub mod checker;
 pub mod config;
+pub mod conflicts;
 pub mod debugger;
 pub mod machine;
 pub mod replica;
@@ -24,12 +25,11 @@ async fn main() {
     let mut centra = Centra::new(&ServeAddr::new(TRA_PORT));
     centra.start_services().await;
 
-    let mut thread_list = Vec::new();
     for id in 1..=BASE_REP_NUM {
-        thread_list.push(std::thread::spawn(move || {
+        std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let mut reptra = Reptra::new_start_service(id as i32)
+                let reptra = Reptra::new_start_service(id as i32)
                     .await
                     .expect("failed to start");
                 reptra.send_port(&ServeAddr::new(TRA_PORT)).await.unwrap();
@@ -38,7 +38,7 @@ async fn main() {
                     .unwrap();
                 reptra.watching().await;
             });
-        }));
+        });
     }
 
     centra.collect_ports(BASE_REP_NUM).await;
@@ -66,7 +66,7 @@ async fn main() {
                             is_dir: false,
                         });
                         info!(
-                            "sync : replica{}({}) -> replica{}({}), path = \"{}\"",
+                            "Sync Request : replica{}({}) -> replica{}({}), path = \"{}\"",
                             id1,
                             centra.get_addr(id1).port(),
                             id2,
@@ -84,8 +84,4 @@ async fn main() {
             Err(_) => panic!("Invalid input"),
         }
     }
-
-    // for t in thread_list {
-    //     t.join().unwrap();
-    // }
 }
