@@ -113,6 +113,20 @@ $m_A \leq m_B \iff m_A \leq s_B$
 
 ### Details Not Mentioned in the Paper
 
+#### Modification Time of Deletion
+
+- 论文里面提到，删除的时候，一个文件的modification time就不需要了
+- 但是modification time依然被parent folder需要，因为modification time的更新不是单调的
+  - 在有conflicts的时候，modification time会直接覆盖
+- 并且删除必须要将自己的modification time给update到parent folder去，否则会出现：*一个文件夹下删除了文件，但是没有更新modification time，所以在sync这个parent folder的时候，并不会将这个删除操作同步到其他副本*
+- 当一个副本因为sync而将自己的某个文件删除，那么modification time依旧是需要更新的，并且是从remote replica那里直接forward过来的。
+  - 所以两个副本被同一个删除事件影响的时候，两个副本之间并不会冲突，有相同的modification time
+
+#### Creation when Parent Folder Doesn't Exist
+
+- local的时候并不会出现这样的问题，因为文件夹的创建必定是一层一层的，所以parent folder一定存在
+- 但是sync的时候，可能会出现，所以理论上来说只需要check一下对于Deleted folder, check一下是否有child是存在的就可以了。
+
 #### Event Counter
 - 每次修改的时候, `m_A = ++counter_A`
 - 每次同步的时候，`A -> B`, `s_b = ++counter_B`
@@ -152,7 +166,8 @@ $m_A \leq m_B \iff m_A \leq s_B$
 
 于是对于文件夹的同步算法的细节
 
-- Mod time正常取max就好了，走完所有的父目录。
+- ~~Mod time正常取max就好了，走完所有的父目录。~~
+- 不能直接取max，需要及时从所有的child pushup上来。
 - Sync time的话
   - 只有在full synchronize的时候才更新dir的sync time
   - 走完所有的父目录取，如果当前父目录的所有第一级子目录都存在，那么就可以更新sync time
