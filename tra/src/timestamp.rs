@@ -35,15 +35,17 @@ impl From<HashMap<i32, i32>> for VectorTime {
     }
 }
 
+impl From<VectorTime> for HashMap<i32, i32> {
+    fn from(value: VectorTime) -> Self {
+        value.times
+    }
+}
+
 impl VectorTime {
     pub fn from_singleton_time(create_time: &SingletonTime) -> Self {
         let mut times = HashMap::new();
         times.insert(create_time.id, create_time.time);
         Self { times }
-    }
-
-    pub fn extract_hashmap(&self) -> HashMap<i32, i32> {
-        self.times.clone()
     }
 
     pub fn clear(&mut self) {
@@ -98,7 +100,7 @@ impl VectorTime {
     }
 
     pub fn geq_singleton(&self, id: i32, time: i32) -> bool {
-        SingletonTime::new(id, time).leq_vec(&self.extract_hashmap())
+        SingletonTime::new(id, time).leq_vec(&self.clone().into())
     }
 
     pub fn display(&self) -> String {

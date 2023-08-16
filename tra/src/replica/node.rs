@@ -85,23 +85,15 @@ impl ModType {
 }
 
 impl QueryRes {
-    pub fn new_exist(data: &NodeData) -> Self {
+    pub fn new_from_node(node: &Node, data: &NodeData) -> Self {
         Self {
-            deleted: false,
+            deleted: data.status.eq(&NodeStatus::Deleted),
+            is_dir: node.path.is_dir(),
             create_id: data.create_time.create_id(),
             create_time: data.create_time.time(),
-            mod_time: data.mod_time.extract_hashmap(),
-            sync_time: data.sync_time.extract_hashmap(),
-        }
-    }
-
-    pub fn new_deleted(data: &NodeData) -> Self {
-        Self {
-            deleted: true,
-            create_id: 0,
-            create_time: 0,
-            mod_time: HashMap::new(),
-            sync_time: data.sync_time.extract_hashmap(),
+            mod_time: data.mod_time.clone().into(),
+            sync_time: data.sync_time.clone().into(),
+            children: data.children.iter().map(|(k, _)| k.clone()).collect(),
         }
     }
 }
@@ -220,12 +212,12 @@ impl Node {
 
     // the new temporary node which is not exist in the file system
     // when any ground sycnchronization happens, we will make it exist
-    pub async fn new_tmp(meta: &Arc<Meta>, tmp_path: &PathLocal, sync_time: &VectorTime) -> Self {
+    pub fn new_tmp(meta: &Arc<Meta>, tmp_path: &PathLocal, sync_time: &VectorTime) -> Self {
         let data = NodeData {
             children: HashMap::new(),
             mod_time: VectorTime::default(),
             sync_time: sync_time.clone(),
-            create_time: SingletonTime::new(meta.id, 0),
+            create_time: SingletonTime::new(0, 0),
             status: NodeStatus::Deleted,
             wd: None,
         };
@@ -233,6 +225,18 @@ impl Node {
             meta: meta.clone(),
             path: Box::new(tmp_path.clone()),
             data: RwLock::new(data),
+        }
+    }
+
+    pub fn get_child(&self, data: &NodeData, name: &String) -> Arc<Node> {
+        if let Some(child) = data.children.get(name) {
+            child.clone()
+        } else {
+            Arc::new(Node::new_tmp(
+                &self.meta,
+                &self.path.join_name(name),
+                &data.sync_time,
+            ))
         }
     }
 }
@@ -316,21 +320,14 @@ impl Node {
 
         // deleted : return directly
         if cur_data.status == NodeStatus::Deleted {
-            return Ok(QueryRes::new_deleted(&cur_data));
+            return Ok(QueryRes::new_from_node(&self, &cur_data));
         }
 
-        if !walk.is_empty() {
-            // not the target node yet
-            let child_name = walk.pop().unwrap();
-            if let Some(child) = cur_data.children.get(&child_name) {
-                child.handle_query(walk).await
-            } else {
-                // if the child node does not exist, return father's sync time
-                Ok(QueryRes::new_deleted(&cur_data))
-            }
+        if let Some(name) = walk.pop() {
+            let child = self.get_child(&cur_data, &name);
+            return child.handle_query(walk).await;
         } else {
-            // the target node, and it exists
-            Ok(QueryRes::new_exist(&cur_data))
+            return Ok(QueryRes::new_from_node(&self, &cur_data));
         }
     }
 
@@ -345,51 +342,31 @@ impl Node {
         if !walk.is_empty() {
             // not the target node yet
             let mut cur_data = self.data.write().await;
-            let child_name = walk.pop().unwrap();
-            if cur_data.children.get(&child_name).is_some() {
-                // can find the child
-                let child = cur_data.children.get(&child_name).unwrap().clone();
-                let sync_flag = child
-                    .handle_sync(op, walk, cur_data.wd.clone().or(parent_wd))
-                    .await?;
-                if sync_flag {
-                    cur_data.mod_time.update(&child.data.read().await.mod_time);
-                }
-                Ok(sync_flag)
-            } else {
-                // child is deleted or not exist
-                let tmp_node = Node::new_tmp(
-                    &self.meta,
-                    &self.path.join_name(child_name),
-                    &cur_data.sync_time,
-                )
-                .await;
-                let sync_flag = tmp_node
-                    .handle_sync(op, walk, cur_data.wd.clone().or(parent_wd))
-                    .await?;
-                if sync_flag {
-                    // there is some change happen
-                    cur_data
-                        .mod_time
-                        .update(&tmp_node.data.read().await.sync_time);
-                    cur_data
-                        .children
-                        .insert(tmp_node.file_name(), Arc::new(tmp_node));
-
-                    if cur_data.status == NodeStatus::Deleted {
-                        // maybe cur_data's create time don't need to be updated
-                        cur_data.status = NodeStatus::Exist;
-                        cur_data.wd = self.meta.watch.add_watch(&self.path).await;
-                    }
-                }
-                Ok(sync_flag)
+            let name = walk.pop().unwrap();
+            let child = self.get_child(&cur_data, &name);
+            let sync_flag = child
+                .handle_sync(op, walk, cur_data.wd.clone().or(parent_wd))
+                .await?;
+            let child_data = child.data.read().await.clone();
+            cur_data.mod_time.update(&child_data.mod_time);
+            if child_data.status == NodeStatus::Exist {
+                // may be the node is tmp node
+                cur_data.children.insert(name, child);
+                cur_data.status = NodeStatus::Exist;
             }
+            if cur_data.wd.is_none() {
+                // the current node is tmp node
+                cur_data.wd = self.meta.watch.add_watch(&self.path).await;
+            }
+            Ok(sync_flag)
         } else {
             // find the target file(dir) to be synchronized
             if op.is_dir {
-                self.sync_dir(op.clone()).await
+                self.sync_dir(op.clone(), &parent_wd.expect("no wd found"))
+                    .await
             } else {
-                self.sync_file(op.clone(), parent_wd).await
+                self.sync_file(op.clone(), &parent_wd.expect("no wd found"))
+                    .await
             }
         }
     }
@@ -475,32 +452,79 @@ impl Node {
 
     // sync a remote folder -> local folder
     #[async_recursion]
-    pub async fn sync_dir(&self, mut op: SyncOption) -> MyResult<bool> {
-        let data = self.data.write().await;
+    pub async fn sync_dir(&self, mut op: SyncOption, wd: &WatchDescriptor) -> MyResult<bool> {
+        let cur_data = self.data.write().await;
         let remote = op.query_path(&self.path).await?;
-        if (remote.deleted && data.status == NodeStatus::Deleted)
-            || (!remote.deleted && data.sync_time.geq(&remote.mod_time))
+        if (remote.deleted && cur_data.status == NodeStatus::Deleted)
+            || (!remote.deleted && cur_data.sync_time.geq(&remote.mod_time))
         {
-            // skip
+            info!("Both deleted, skip the whole dir : {}", self.path.display());
             return Ok(false);
         } else {
-            for (_, child) in data.children.iter() {
-                child.sync_dir(op.clone()).await?;
+            let remote = op.query_path(&self.path).await?;
+            let mut name_list: Vec<String> =
+                cur_data.children.iter().map(|(k, _)| k.clone()).collect();
+            name_list.append(&mut remote.children.clone());
+            name_list.sort();
+            name_list.dedup();
+            let mut join_set = tokio::task::JoinSet::new();
+            for name in name_list {
+                let child = self.get_child(&cur_data, &name);
+                let remote_child = op.query_path(&child.path).await?;
+                if child.data.read().await.status == NodeStatus::Exist
+                    && !remote_child.deleted
+                    && child.path.is_dir() != remote_child.is_dir
+                {
+                    info!(
+                        "Both exist, but one is dir, the other is file : {}",
+                        child.path.display()
+                    );
+                    conflicts_resolve();
+                    return Ok(true);
+                }
+                let child_is_dir = if remote_child.deleted {
+                    child.path.is_dir()
+                } else {
+                    remote_child.is_dir
+                };
+                if child_is_dir {
+                    let op = op.clone();
+                    let wd = wd.clone();
+                    join_set.spawn(async move {
+                        child.sync_dir(op, &wd).await;
+                        child.clone()
+                    });
+                } else {
+                    let op = op.clone();
+                    let wd = wd.clone();
+                    join_set.spawn(async move {
+                        child.sync_file(op, &wd).await;
+                        child.clone()
+                    });
+                }
             }
+            let mut sync_flag: bool = false;
+            while let Some(res) = join_set.join_next().await {
+                // sync_flag |=
+                // res.or::<String>(Err("Sync Error : Sync child join error".into()))??;
+            }
+            if remote.deleted && cur_data.mod_time.leq(&remote.sync_time) {
+                // Ok, we can delete the local dir
+            }
+            if cur_data.status == NodeStatus::Deleted && sync_flag {
+                // the current local dir is deleted, but there are still changes happened
+                // which means that some files are created in the local dir
+                // we can create a node for the local dir
+            }
+            Ok(sync_flag)
         }
-        todo!()
     }
 
     // sync a single remove file to local
-    pub async fn sync_file(
-        &self,
-        mut op: SyncOption,
-        parent_wd: Option<WatchDescriptor>,
-    ) -> MyResult<bool> {
+    pub async fn sync_file(&self, mut op: SyncOption, wd: &WatchDescriptor) -> MyResult<bool> {
         let data = self.data.read().await.clone();
         // the rw_lock is not required here
         let remote = op.query_path(&self.path).await?;
-        let wd = parent_wd.expect("parent_wd is None");
         if data.status == NodeStatus::Exist && !remote.deleted {
             // both exist
             if data.mod_time.leq(&remote.sync_time) {
