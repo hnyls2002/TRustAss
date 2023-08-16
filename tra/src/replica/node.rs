@@ -111,6 +111,15 @@ impl SyncOption {
     }
 }
 
+impl NodeData {
+    pub async fn pushup_mod(&mut self) {
+        self.mod_time = VectorTime::default();
+        for (_, child) in &self.children {
+            self.mod_time.check_max(&child.data.read().await.mod_time);
+        }
+    }
+}
+
 impl Node {
     pub fn file_name(&self) -> String {
         self.path
@@ -347,8 +356,8 @@ impl Node {
             let sync_flag = child
                 .handle_sync(op, walk, cur_data.wd.clone().or(parent_wd))
                 .await?;
+            cur_data.pushup_mod().await;
             let child_data = child.data.read().await.clone();
-            cur_data.mod_time.update(&child_data.mod_time);
             if child_data.status == NodeStatus::Exist {
                 // may be the node is tmp node
                 cur_data.children.insert(name, child);
@@ -410,8 +419,7 @@ impl Node {
                 return Err("Delete Error : Directory not empty".into());
             }
         }
-        // clear the mod time && update the sync time
-        data.mod_time.clear();
+        data.mod_time.update_one(self.meta.id, time);
         data.sync_time.update_one(self.meta.id, time);
         data.status = NodeStatus::Deleted;
         if data.wd.is_some() {
@@ -437,7 +445,7 @@ impl Node {
             unwrap_res!(child.delete_moved_from(time).await);
         }
         info!("File deleted : {}", self.path.display());
-        data.mod_time.clear();
+        data.sync_time.update_one(self.meta.id, time);
         data.sync_time.update_one(self.meta.id, time);
         data.status = NodeStatus::Deleted;
         if data.wd.is_some() {
@@ -594,8 +602,8 @@ impl Node {
         self.meta.watch.freeze_watch(wd).await;
         sync_bytes(&self.path, op.client).await?;
         self.meta.watch.unfreeze_watch(wd).await;
-        cur_data.mod_time.update(&remote.mod_time.clone().into());
-        cur_data.sync_time.update(&remote.sync_time.clone().into());
+        cur_data.mod_time = remote.mod_time.clone().into();
+        cur_data.sync_time = remote.sync_time.clone().into();
         cur_data.sync_time.update_one(self.meta.id, op.time);
         Ok(())
     }
@@ -631,8 +639,8 @@ impl Node {
         self.meta.watch.freeze_watch(wd).await;
         delete_file(&self.path).await?;
         self.meta.watch.unfreeze_watch(wd).await;
-        cur_data.mod_time.clear();
-        cur_data.sync_time.update(&remote.sync_time.clone().into());
+        cur_data.mod_time = remote.mod_time.clone().into();
+        cur_data.sync_time = remote.sync_time.clone().into();
         cur_data.sync_time.update_one(self.meta.id, op.time);
         cur_data.status = NodeStatus::Deleted;
         Ok(())

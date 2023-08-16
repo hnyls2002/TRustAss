@@ -48,9 +48,9 @@ impl VectorTime {
         Self { times }
     }
 
-    pub fn clear(&mut self) {
-        self.times.clear();
-    }
+    // pub fn clear(&mut self) {
+    //     self.times.clear();
+    // }
 
     pub fn update_one(&mut self, id: i32, time: i32) {
         if let Some(old_time) = self.times.get_mut(&id) {
@@ -61,7 +61,7 @@ impl VectorTime {
         }
     }
 
-    pub fn update(&mut self, other: &Self) {
+    pub fn check_max(&mut self, other: &Self) {
         for (id, time) in &other.times {
             if let Some(old) = self.times.get(id) {
                 self.times.insert(*id, std::cmp::max(*old, *time));
