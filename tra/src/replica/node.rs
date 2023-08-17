@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ops::BitOrAssign, sync::Arc};
+use std::{collections::HashMap, env::current_dir, ops::BitOrAssign, sync::Arc};
 
 use async_recursion::async_recursion;
 use inotify::{EventMask, WatchDescriptor};
@@ -374,7 +374,6 @@ impl Node {
             let child_status = child
                 .handle_sync(op, walk, cur_data.wd.clone().or(parent_wd))
                 .await?;
-            cur_data.pushup_mod().await;
             if child_status.exist() {
                 // may be the node is tmp node
                 cur_data.children.insert(child.file_name(), child);
@@ -384,6 +383,7 @@ impl Node {
                     cur_data.wd = self.meta.watch.add_watch(&self.path).await;
                 }
             }
+            cur_data.pushup_mod().await;
             return Ok(cur_data.status);
         } else {
             return self.sync_node(op, parent_wd).await;
