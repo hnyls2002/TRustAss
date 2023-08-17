@@ -6,9 +6,9 @@ use tokio::sync::{RwLock, RwLockWriteGuard};
 use tonic::Request;
 
 use crate::{
+    banner::{LocalBanner, SyncBanner},
     config::RpcChannel,
     conflicts::conflicts_resolve,
-    info,
     replica::{
         meta::{delete_empty_dir, delete_file, sync_bytes},
         Meta,
@@ -393,11 +393,8 @@ impl Node {
 
 impl Node {
     pub async fn create_child(&self, name: &String, time: i32) -> MyResult<()> {
-        info!(
-            "New file created : {} under the dir {}",
-            name,
-            self.path.display()
-        );
+        LocalBanner::create(&self.path, name);
+
         let child_path = self.path.join_name(name);
         let child = Arc::new(Node::new_from_create(&child_path, time, &self.meta).await);
         if child.path.is_dir() {
@@ -411,7 +408,8 @@ impl Node {
     }
 
     pub async fn modify_self(&self, time: i32) -> MyResult<()> {
-        info!("File modified : {}", self.path.display());
+        LocalBanner::modify(&self.path);
+
         let mut data = self.data.write().await;
         data.mod_time.update_one(self.meta.id, time);
         data.sync_time.update_one(self.meta.id, time);
@@ -421,7 +419,8 @@ impl Node {
     // just one file, actually removed in file system
     // and the watch descriptor is automatically removed
     pub async fn delete_rm(&self, time: i32) -> MyResult<()> {
-        info!("File deleted : {}", self.path.display());
+        LocalBanner::delete(&self.path);
+
         let mut data = self.data.write().await;
         // the file system cannot delete a directory that is not empty
         for (_, child) in data.children.iter() {
@@ -454,7 +453,9 @@ impl Node {
         for (_, child) in data.children.iter() {
             unwrap_res!(child.delete_moved_from(time).await);
         }
-        info!("File deleted : {}", self.path.display());
+        LocalBanner::delete(&self.path);
+
+        // TODO
         data.sync_time.update_one(self.meta.id, time);
         data.sync_time.update_one(self.meta.id, time);
         data.status.set_deleted();
@@ -479,12 +480,12 @@ impl Node {
         let np_wd = cur_data.wd.clone().or(p_wd.clone());
 
         if cur_data.status.deleted() && remote_data.status.deleted() {
-            info!("Both deleted, skip the file : {}", self.path.display());
+            SyncBanner::skip_both_deleted(&self.path);
             return Ok(cur_data.status);
         }
 
         if remote_data.status.exist() && remote_data.mod_time.leq(&cur_data.sync_time) {
-            info!("Local is newer, skip the file : {}", self.path.display());
+            SyncBanner::skip_newer(&self.path);
             return Ok(cur_data.status);
         }
 
@@ -492,7 +493,7 @@ impl Node {
             && remote_data.status.exist()
             && self.path.is_dir() != remote_is_dir
         {
-            info!("Different type, skip the file : {}", self.path.display());
+            SyncBanner::skip_different_type(&self.path);
             return Ok(cur_data.status);
         }
 
@@ -536,7 +537,8 @@ impl Node {
 
         if remote_data.status.deleted() && cur_data.mod_time.leq(&remote_data.mod_time) {
             assert!(cur_data.children.is_empty());
-            info!("Delete the local dir entirely : {}", self.path.display());
+            SyncBanner::delete(&self.path);
+
             cur_data.status.set_deleted();
             let wd = cur_data.wd.take().unwrap();
             self.meta
@@ -547,7 +549,9 @@ impl Node {
             delete_empty_dir(&self.path).await?;
             self.meta.watch.unfreeze_watch(&p_wd.clone().unwrap()).await;
         } else if !cur_data.children.is_empty() && cur_data.status.deleted() {
-            info!("Recover the local dir : {}", self.path.display());
+            // TODO
+            SyncBanner::create_to_independent_empty(&self.path);
+
             cur_data.status.set_exist();
             assert!(cur_data.wd.is_none());
             cur_data.wd = self.meta.watch.add_watch(&self.path).await;
@@ -569,15 +573,15 @@ impl Node {
             // both exist
             if cur_data.mod_time.leq(&remote_data.sync_time) {
                 // local_m <= remote_s
-                info!("Both exist : override the local file");
+                SyncBanner::overwrite(&self.path);
                 self.sync_work(SyncType::Override, op, &wd, cur_data, &remote_data)
                     .await?;
             } else if remote_data.mod_time.leq(&cur_data.sync_time) {
                 // local_s >= remote_m
-                info!("Both exist : do nothing");
+                SyncBanner::skip_newer(&self.path);
             } else {
                 // report conflicts
-                info!("Both exist : diverged, conflicts happened");
+                SyncBanner::conflict(&self.path);
                 conflicts_resolve();
             }
         } else if cur_data.status.exist() || remote_data.status.exist() {
@@ -585,33 +589,33 @@ impl Node {
                 // remote(deleted) -> local
                 if cur_data.create_time.leq_vec(&remote_data.sync_time) {
                     if cur_data.mod_time.leq(&remote_data.sync_time) {
-                        info!("Sync from deleted : delete the local file");
+                        SyncBanner::delete(&self.path);
                         self.sync_work(SyncType::Delete, op, &wd, cur_data, remote_data)
                             .await?;
                     } else {
-                        info!("Sync from deleted : but changes diverged, conflicts happened");
+                        SyncBanner::conflict(&self.path);
                         conflicts_resolve();
                     }
                 } else {
-                    info!("Sync from deleted : independent files, do nothing");
+                    SyncBanner::skip_from_independent_empty(&self.path);
                 }
             } else {
                 // remote -> local(deleted)
                 if remote_data.create_time.leq_vec(&cur_data.sync_time) {
                     if remote_data.mod_time.leq(&cur_data.sync_time) {
-                        info!("Sync to deleted : do nothing");
+                        SyncBanner::skip_newer(&self.path);
                     } else {
-                        info!("Sync to deleted : but changes diverged, conflicts happened");
+                        SyncBanner::conflict(&self.path);
                         conflicts_resolve();
                     }
                 } else {
-                    info!("Sync to deleted : independent files, create a new copy");
+                    SyncBanner::create_to_independent_empty(&self.path);
                     self.sync_work(SyncType::Create, op, &wd, cur_data, &remote_data)
                         .await?;
                 }
             }
         } else {
-            info!("Neither exists : do nothing");
+            SyncBanner::skip_both_deleted(&self.path);
         }
         return Ok(cur_data.status);
     }
