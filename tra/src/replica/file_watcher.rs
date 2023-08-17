@@ -72,6 +72,7 @@ impl WatchIfc {
     pub async fn add_watch(&self, path: &PathLocal) -> Option<WatchDescriptor> {
         // watching directory is enough
         let mut tmp_watches = self.watches.clone();
+        assert!(path.exists(), "Path not exist");
         if path.is_dir() {
             info!("add_watches: {}", path.display());
             let wd = tmp_watches.add(path, *WATCH_EVENTS).unwrap();

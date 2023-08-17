@@ -10,7 +10,7 @@ use crate::{
     config::RpcChannel,
     conflicts::conflicts_resolve,
     replica::{
-        meta::{delete_empty_dir, delete_file, sync_bytes},
+        meta::{create_dir_all, delete_empty_dir, delete_file, sync_bytes},
         Meta,
     },
     reptra::{QueryReq, QueryRes, RsyncClient},
@@ -374,14 +374,15 @@ impl Node {
             let child = self.get_child(&cur_data, &walk.pop().unwrap());
             let child_status = child.handle_sync(op, walk, np_wd).await?;
 
-            if child_status.exist() {
-                // may be the node is tmp node
+            if cur_data.status.deleted() && child_status.exist() {
+                // the node is tmp node, and the dir should already be created
+                SyncBanner::create_for_parent(&self.path);
+                assert!(self.path.exists() && self.path.is_dir());
+
                 cur_data.children.insert(child.file_name(), child);
                 cur_data.status.set_exist();
-                if cur_data.wd.is_none() {
-                    // the current node is tmp node
-                    cur_data.wd = self.meta.watch.add_watch(&self.path).await;
-                }
+                assert!(cur_data.wd.is_none());
+                cur_data.wd = self.meta.watch.add_watch(&self.path).await;
             }
             cur_data.pushup_mod().await;
             return Ok(cur_data.status);
@@ -548,9 +549,15 @@ impl Node {
             self.meta.watch.freeze_watch(&p_wd.clone().unwrap()).await;
             delete_empty_dir(&self.path).await?;
             self.meta.watch.unfreeze_watch(&p_wd.clone().unwrap()).await;
-        } else if !cur_data.children.is_empty() && cur_data.status.deleted() {
-            // TODO
+        } else if cur_data.status.deleted() {
             SyncBanner::create_to_independent_empty(&self.path);
+
+            // the dir may not be created, due to the folder is empty (contains no file but only subfolders)
+            if !self.path.exists() {
+                self.meta.watch.freeze_watch(&p_wd.clone().unwrap()).await;
+                create_dir_all(&self.path).await?;
+                self.meta.watch.unfreeze_watch(&p_wd.clone().unwrap()).await;
+            }
 
             cur_data.status.set_exist();
             assert!(cur_data.wd.is_none());

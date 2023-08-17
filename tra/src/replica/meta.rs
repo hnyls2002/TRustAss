@@ -43,9 +43,7 @@ pub async fn write_bytes(path: &PathLocal, data: impl AsRef<[u8]>) -> MyResult<(
     } else {
         let mut parent = path.clone();
         parent.pop().ok_or("Write Bytes : get parent path failed")?;
-        tokio::fs::create_dir_all(parent)
-            .await
-            .or(Err("Write Bytes : create dir failed"))?;
+        create_dir_all(&parent).await?;
         tokio::fs::File::create(path)
             .await
             .or(Err("Write Bytes : create file failed"))?
@@ -90,6 +88,11 @@ pub async fn delete_empty_dir(path: &PathLocal) -> MyResult<()> {
     // remove_dir will fail if the directory is not empty
     tokio::fs::remove_dir(path)
         .await
-        .or(Err("Delete Empty Dir : remove dir failed"))?;
-    Ok(())
+        .or(Err("Delete Empty Dir : remove dir failed".into()))
+}
+
+pub async fn create_dir_all(path: &PathLocal) -> MyResult<()> {
+    tokio::fs::create_dir_all(path)
+        .await
+        .or(Err("Write Bytes : create dir failed".into()))
 }
