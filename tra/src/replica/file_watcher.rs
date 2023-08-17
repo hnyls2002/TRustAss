@@ -1,9 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    ffi::OsStr,
-    path::Path,
-    sync::Arc,
-};
+use std::{collections::HashMap, ffi::OsStr, path::Path, sync::Arc};
 
 use inotify::{Event, Inotify, WatchDescriptor, WatchMask, Watches};
 use lazy_static::lazy_static;
@@ -24,7 +19,7 @@ lazy_static! {
 pub struct FileWatcher {
     pub inotify: Inotify,
     pub wd_map: Arc<RwLock<HashMap<WatchDescriptor, PathLocal>>>,
-    pub freeze_set: Arc<RwLock<HashSet<WatchDescriptor>>>,
+    pub freeze_set: Arc<RwLock<HashMap<WatchDescriptor, usize>>>,
     pub cnt: i32,
 }
 
@@ -32,7 +27,7 @@ pub struct FileWatcher {
 pub struct WatchIfc {
     watches: Watches,
     wd_map: Arc<RwLock<HashMap<WatchDescriptor, PathLocal>>>,
-    freeze_set: Arc<RwLock<HashSet<WatchDescriptor>>>,
+    freeze_count_map: Arc<RwLock<HashMap<WatchDescriptor, usize>>>,
 }
 
 impl FileWatcher {
@@ -40,7 +35,7 @@ impl FileWatcher {
         Self {
             inotify: Inotify::init().expect("Failed to initialize inotify"),
             wd_map: Arc::new(RwLock::new(HashMap::new())),
-            freeze_set: Arc::new(RwLock::new(HashSet::new())),
+            freeze_set: Arc::new(RwLock::new(HashMap::new())),
             cnt: 0,
         }
     }
@@ -49,12 +44,16 @@ impl FileWatcher {
         WatchIfc {
             watches: self.inotify.watches(),
             wd_map: self.wd_map.clone(),
-            freeze_set: self.freeze_set.clone(),
+            freeze_count_map: self.freeze_set.clone(),
         }
     }
 
     pub async fn is_freezed(&self, wd: &WatchDescriptor) -> bool {
-        self.freeze_set.read().await.contains(wd)
+        self.freeze_set
+            .read()
+            .await
+            .get(wd)
+            .map_or(false, |v| *v > 0)
     }
 
     pub async fn display_event(&mut self, event: &Event<&OsStr>) {
@@ -98,10 +97,19 @@ impl WatchIfc {
     }
 
     pub async fn freeze_watch(&self, wd: &WatchDescriptor) {
-        self.freeze_set.write().await.insert(wd.clone());
+        self.freeze_count_map
+            .write()
+            .await
+            .entry(wd.clone())
+            .and_modify(|v| *v += 1)
+            .or_insert(1);
     }
 
     pub async fn unfreeze_watch(&self, wd: &WatchDescriptor) {
-        self.freeze_set.write().await.remove(wd);
+        let mut mp = self.freeze_count_map.write().await;
+        mp.entry(wd.clone()).and_modify(|v| *v -= 1);
+        if mp.get(wd).unwrap() == &0 {
+            mp.remove(wd);
+        }
     }
 }
