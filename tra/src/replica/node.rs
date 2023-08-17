@@ -374,14 +374,17 @@ impl Node {
             let child = self.get_child(&cur_data, &walk.pop().unwrap());
             let child_status = child.handle_sync(op, walk, np_wd).await?;
 
+            if child_status.exist() {
+                cur_data.children.insert(child.file_name(), child);
+            }
+
             if cur_data.status.deleted() && child_status.exist() {
                 // the node is tmp node, and the dir should already be created
                 SyncBanner::create_for_parent(&self.path);
                 assert!(self.path.exists() && self.path.is_dir());
-
-                cur_data.children.insert(child.file_name(), child);
-                cur_data.status.set_exist();
                 assert!(cur_data.wd.is_none());
+
+                cur_data.status.set_exist();
                 cur_data.wd = self.meta.watch.add_watch(&self.path).await;
             }
             cur_data.pushup_mod().await;
