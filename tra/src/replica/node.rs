@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env::current_dir, ops::BitOrAssign, sync::Arc};
+use std::{collections::HashMap, ops::BitOrAssign, sync::Arc};
 
 use async_recursion::async_recursion;
 use inotify::{EventMask, WatchDescriptor};
@@ -10,7 +10,7 @@ use crate::{
     conflicts::conflicts_resolve,
     info,
     replica::{
-        meta::{delete_file, sync_bytes},
+        meta::{delete_empty_dir, delete_file, sync_bytes},
         Meta,
     },
     reptra::{QueryReq, QueryRes, RsyncClient},
@@ -365,15 +365,15 @@ impl Node {
         &self,
         op: SyncOption,
         mut walk: Vec<String>,
-        parent_wd: Option<WatchDescriptor>,
+        p_wd: Option<WatchDescriptor>,
     ) -> MyResult<NodeStatus> {
         if !walk.is_empty() {
             // not the target node yet
             let mut cur_data = self.data.write().await;
+            let np_wd = cur_data.wd.clone().or(p_wd);
             let child = self.get_child(&cur_data, &walk.pop().unwrap());
-            let child_status = child
-                .handle_sync(op, walk, cur_data.wd.clone().or(parent_wd))
-                .await?;
+            let child_status = child.handle_sync(op, walk, np_wd).await?;
+
             if child_status.exist() {
                 // may be the node is tmp node
                 cur_data.children.insert(child.file_name(), child);
@@ -386,7 +386,7 @@ impl Node {
             cur_data.pushup_mod().await;
             return Ok(cur_data.status);
         } else {
-            return self.sync_node(op, parent_wd).await;
+            return self.sync_node(op, p_wd).await;
         }
     }
 }
@@ -472,27 +472,38 @@ impl Node {
     pub async fn sync_node(
         &self,
         mut op: SyncOption,
-        wd: Option<WatchDescriptor>,
+        p_wd: Option<WatchDescriptor>,
     ) -> MyResult<NodeStatus> {
         let mut cur_data = self.data.write().await;
         let (remote_data, remote_is_dir) = op.query_data(&self.path).await?;
-        let cur_wd = cur_data.wd.clone().or(wd);
+        let np_wd = cur_data.wd.clone().or(p_wd.clone());
 
         if cur_data.status.deleted() && remote_data.status.deleted() {
             info!("Both deleted, skip the file : {}", self.path.display());
+            return Ok(cur_data.status);
         }
 
         if remote_data.status.exist() && remote_data.mod_time.leq(&cur_data.sync_time) {
             info!("Local is newer, skip the file : {}", self.path.display());
+            return Ok(cur_data.status);
         }
 
-        if !self.path.is_dir() || !remote_is_dir {
-            return self
-                .sync_file(op, cur_wd, &mut cur_data, &remote_data)
-                .await;
+        if cur_data.status.exist()
+            && remote_data.status.exist()
+            && self.path.is_dir() != remote_is_dir
+        {
+            info!("Different type, skip the file : {}", self.path.display());
+            return Ok(cur_data.status);
+        }
+
+        if (cur_data.status.exist() && !self.path.is_dir())
+            || (remote_data.status.exist() && !remote_is_dir)
+        {
+            return self.sync_file(op, np_wd, &mut cur_data, &remote_data).await;
         }
 
         // sync a remote folder -> local folder
+
         let mut name_list: Vec<String> = cur_data.children.iter().map(|(k, _)| k.clone()).collect();
         name_list.append(&mut remote_data.children.clone());
         name_list.sort();
@@ -503,32 +514,46 @@ impl Node {
         for name in name_list {
             let child = self.get_child(&cur_data, &name);
             let op = op.clone();
-            let wd = cur_wd.clone();
-            join_set.spawn(async move { child.sync_node(op, wd).await });
+            let np_wd = np_wd.clone();
+            join_set.spawn(async move {
+                let res = child.sync_node(op, np_wd).await?;
+                // return the Arc<Node> in case that the tmp child is lost
+                MyResult::Ok((res, child))
+            });
         }
 
-        let mut child_status = NodeStatus::Deleted;
+        // join all the child threads
         while let Some(res) = join_set.join_next().await {
-            let res = res;
-            child_status |= res.or::<String>(Err("Sync Node : thread join error".into()))??;
+            let (res, child) = res.or::<String>(Err("Sync Node : thread join error".into()))??;
+            if res.exist() {
+                cur_data.children.insert(child.file_name(), child);
+            }
         }
 
-        if child_status.deleted()
-            && remote_data.status.deleted()
-            && cur_data.mod_time.leq(&remote_data.mod_time)
-        {
+        cur_data.pushup_mod().await;
+        cur_data.sync_time = remote_data.sync_time;
+        cur_data.sync_time.update_one(self.meta.id, op.time);
+
+        if remote_data.status.deleted() && cur_data.mod_time.leq(&remote_data.mod_time) {
+            assert!(cur_data.children.is_empty());
             info!("Delete the local dir entirely : {}", self.path.display());
-            // TODO
-            return Ok(NodeStatus::Deleted);
-        }
-
-        if child_status.exist() && cur_data.status.deleted() {
+            cur_data.status.set_deleted();
+            let wd = cur_data.wd.take().unwrap();
+            self.meta
+                .watch
+                .remove_watch(self.path.as_ref(), &wd)
+                .await?;
+            self.meta.watch.freeze_watch(&p_wd.clone().unwrap()).await;
+            delete_empty_dir(&self.path).await?;
+            self.meta.watch.unfreeze_watch(&p_wd.clone().unwrap()).await;
+        } else if !cur_data.children.is_empty() && cur_data.status.deleted() {
             info!("Recover the local dir : {}", self.path.display());
-            // TODO
-            return Ok(NodeStatus::Exist);
+            cur_data.status.set_exist();
+            assert!(cur_data.wd.is_none());
+            cur_data.wd = self.meta.watch.add_watch(&self.path).await;
         }
 
-        todo!()
+        return Ok(cur_data.status);
     }
 
     // sync a single remove file to local

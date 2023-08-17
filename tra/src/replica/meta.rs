@@ -85,3 +85,11 @@ pub async fn delete_file(path: &PathLocal) -> MyResult<()> {
         .or(Err("Delete File : remove file failed"))?;
     Ok(())
 }
+
+pub async fn delete_empty_dir(path: &PathLocal) -> MyResult<()> {
+    // remove_dir will fail if the directory is not empty
+    tokio::fs::remove_dir(path)
+        .await
+        .or(Err("Delete Empty Dir : remove dir failed"))?;
+    Ok(())
+}
