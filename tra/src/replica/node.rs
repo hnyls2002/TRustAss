@@ -57,6 +57,12 @@ pub struct SyncOption {
     pub client: RsyncClient<RpcChannel>,
 }
 
+pub enum SyncType {
+    Create,
+    Override,
+    Delete,
+}
+
 #[derive(Clone)]
 pub struct ModOption {
     pub ty: ModType,
@@ -539,7 +545,7 @@ impl Node {
             if cur_data.mod_time.leq(&remote_data.sync_time) {
                 // local_m <= remote_s
                 info!("Both exist : override the local file");
-                self.sync_override_file(op, &wd, cur_data, &remote_data)
+                self.sync_work(SyncType::Override, op, &wd, cur_data, &remote_data)
                     .await?;
             } else if remote_data.mod_time.leq(&cur_data.sync_time) {
                 // local_s >= remote_m
@@ -555,7 +561,7 @@ impl Node {
                 if cur_data.create_time.leq_vec(&remote_data.sync_time) {
                     if cur_data.mod_time.leq(&remote_data.sync_time) {
                         info!("Sync from deleted : delete the local file");
-                        self.sync_delete_file(op, &wd, cur_data, remote_data)
+                        self.sync_work(SyncType::Delete, op, &wd, cur_data, remote_data)
                             .await?;
                     } else {
                         info!("Sync from deleted : but changes diverged, conflicts happened");
@@ -575,7 +581,7 @@ impl Node {
                     }
                 } else {
                     info!("Sync to deleted : independent files, create a new copy");
-                    self.sync_create_file(op, &wd, cur_data, &remote_data)
+                    self.sync_work(SyncType::Create, op, &wd, cur_data, &remote_data)
                         .await?;
                 }
             }
@@ -585,8 +591,9 @@ impl Node {
         return Ok(cur_data.status);
     }
 
-    pub async fn sync_override_file(
+    pub async fn sync_work(
         &self,
+        ty: SyncType,
         op: SyncOption,
         wd: &WatchDescriptor,
         cur_data: &mut RwLockWriteGuard<'_, NodeData>,
@@ -594,49 +601,31 @@ impl Node {
     ) -> MyResult<()> {
         assert!(cur_data.wd.is_none());
         self.meta.watch.freeze_watch(wd).await;
-        sync_bytes(&self.path, op.client).await?;
+        match ty {
+            SyncType::Create | SyncType::Override => {
+                sync_bytes(&self.path, op.client).await?;
+            }
+            SyncType::Delete => {
+                delete_file(&self.path).await?;
+            }
+        }
         self.meta.watch.unfreeze_watch(wd).await;
-        cur_data.mod_time = remote_data.mod_time.clone();
-        cur_data.sync_time = remote_data.sync_time.clone();
-        cur_data.sync_time.update_one(self.meta.id, op.time);
-        Ok(())
-    }
 
-    pub async fn sync_create_file(
-        &self,
-        op: SyncOption,
-        wd: &WatchDescriptor,
-        cur_data: &mut RwLockWriteGuard<'_, NodeData>,
-        remote_data: &RemoteData,
-    ) -> MyResult<()> {
-        assert!(cur_data.wd.is_none());
-        self.meta.watch.freeze_watch(wd).await;
-        sync_bytes(&self.path, op.client).await?;
-        self.meta.watch.unfreeze_watch(wd).await;
         cur_data.mod_time = remote_data.mod_time.clone();
         cur_data.sync_time = remote_data.sync_time.clone();
         cur_data.sync_time.update_one(self.meta.id, op.time);
-        cur_data.create_time = remote_data.create_time.clone();
-        cur_data.status = NodeStatus::Exist;
-        // only a folder can have a watch descriptor
-        Ok(())
-    }
 
-    pub async fn sync_delete_file(
-        &self,
-        op: SyncOption,
-        wd: &WatchDescriptor,
-        cur_data: &mut RwLockWriteGuard<'_, NodeData>,
-        remote_data: &RemoteData,
-    ) -> MyResult<()> {
-        assert!(cur_data.wd.is_none());
-        self.meta.watch.freeze_watch(wd).await;
-        delete_file(&self.path).await?;
-        self.meta.watch.unfreeze_watch(wd).await;
-        cur_data.mod_time = remote_data.mod_time.clone();
-        cur_data.sync_time = remote_data.sync_time.clone();
-        cur_data.sync_time.update_one(self.meta.id, op.time);
-        cur_data.status = NodeStatus::Deleted;
+        match ty {
+            SyncType::Create => {
+                cur_data.create_time = remote_data.create_time.clone();
+                cur_data.status.set_exist();
+            }
+            SyncType::Override => {
+                cur_data.create_time = remote_data.create_time.clone();
+            }
+            SyncType::Delete => cur_data.status.set_deleted(),
+        }
+
         Ok(())
     }
 }
