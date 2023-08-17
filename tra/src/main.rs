@@ -63,7 +63,6 @@ async fn main() {
                         let request = Request::new(SyncReq {
                             port: centra.get_addr(id1).port() as i32,
                             path_rel: path_rel.clone(),
-                            is_dir: false,
                         });
                         info!(
                             "Sync Request : replica{}({}) -> replica{}({}), path = \"{}\"",

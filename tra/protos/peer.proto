@@ -13,7 +13,6 @@ message Patch { bytes delta = 1; }
 message SyncReq {
   int32 port = 1;
   string path_rel = 2; // relative path without prefix
-  bool is_dir = 3;
 }
 
 message BoolResult { bool success = 1; }
@@ -22,12 +21,12 @@ message QueryReq { string path_rel = 1; }
 
 message QueryRes {
   bool deleted = 1;
-  bool is_dir = 2;
-  int32 create_id = 3;
-  int32 create_time = 4;
-  map<int32, int32> mod_time = 5;
-  map<int32, int32> sync_time = 6;
-  repeated string children = 7;
+  int32 create_id = 2;
+  int32 create_time = 3;
+  map<int32, int32> mod_time = 4;
+  map<int32, int32> sync_time = 5;
+  repeated string children = 6;
+  bool is_dir = 7;
 }
 
 service Rsync {

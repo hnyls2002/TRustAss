@@ -2,6 +2,7 @@ pub mod file_watcher;
 pub mod meta;
 pub mod node;
 pub mod path_local;
+pub mod query;
 
 use std::{ffi::OsStr, sync::Arc};
 
@@ -109,14 +110,12 @@ impl Replica {
     pub async fn handle_sync(
         &self,
         path: &String,
-        is_dir: bool,
         client: RsyncClient<RpcChannel>,
     ) -> MyResult<()> {
         let path = PathLocal::new_from_rel(self.base_node.path.prefix(), path);
         let walk = path.get_walk();
         let op = SyncOption {
             time: self.add_counter().await,
-            is_dir,
             client,
         };
         self.base_node.handle_sync(op, walk, None).await?;

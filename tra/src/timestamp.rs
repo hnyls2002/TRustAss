@@ -24,8 +24,8 @@ impl SingletonTime {
         self.time
     }
 
-    pub fn leq_vec(&self, other: &HashMap<i32, i32>) -> bool {
-        self.time <= *other.get(&self.id).unwrap_or(&0)
+    pub fn leq_vec(&self, other: &VectorTime) -> bool {
+        self.time <= *other.times.get(&self.id).unwrap_or(&0)
     }
 }
 
@@ -71,10 +71,10 @@ impl VectorTime {
         }
     }
 
-    pub fn leq(&self, other: &HashMap<i32, i32>) -> bool {
+    pub fn leq(&self, other: &Self) -> bool {
         for (id, time) in &self.times {
             assert!(*time != 0);
-            if let Some(other_time) = other.get(id) {
+            if let Some(other_time) = other.times.get(id) {
                 if *time > *other_time {
                     return false;
                 }
@@ -83,24 +83,6 @@ impl VectorTime {
             }
         }
         true
-    }
-
-    pub fn geq(&self, other: &HashMap<i32, i32>) -> bool {
-        for (id, time) in other {
-            assert!(*time != 0);
-            if let Some(self_time) = self.times.get(id) {
-                if *time > *self_time {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
-        true
-    }
-
-    pub fn geq_singleton(&self, id: i32, time: i32) -> bool {
-        SingletonTime::new(id, time).leq_vec(&self.clone().into())
     }
 
     pub fn display(&self) -> String {

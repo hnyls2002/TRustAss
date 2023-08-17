@@ -68,7 +68,7 @@ impl Rsync for PeerServer {
             .map_err(|e| Status::invalid_argument(e))?;
         let client = RsyncClient::new(query_channel);
         self.replica
-            .handle_sync(&inner.path_rel, inner.is_dir, client)
+            .handle_sync(&inner.path_rel, client)
             .await
             .map_err(|e| Status::invalid_argument(e))?;
         Ok(Response::new(BoolResult { success: true }))
