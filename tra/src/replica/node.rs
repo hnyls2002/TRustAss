@@ -15,7 +15,7 @@ use crate::{
     },
     reptra::{QueryReq, QueryRes, RsyncClient},
     timestamp::{SingletonTime, VectorTime},
-    unwrap_res, MyResult,
+    MyResult,
 };
 
 use super::{path_local::PathLocal, query::RemoteData};
@@ -274,9 +274,9 @@ impl Node {
     // scan all the files (which are not detected before) in the directory
     #[async_recursion]
     pub async fn scan_all(&self, init_time: i32) -> MyResult<()> {
-        let mut sub_files = unwrap_res!(tokio::fs::read_dir(self.path.as_ref())
+        let mut sub_files = tokio::fs::read_dir(self.path.as_ref())
             .await
-            .or(Err("Scan All Error : read dir error")));
+            .or(Err("Scan All Error : read dir error"))?;
         while let Some(sub_file) = sub_files.next_entry().await.unwrap() {
             let path = PathLocal::new_from_local(self.path.prefix(), sub_file.path());
             let child = Arc::new(Node::new_from_create(&path, init_time, &self.meta).await);
@@ -393,8 +393,7 @@ impl Node {
         let child_path = self.path.join_name(name);
         let child = Arc::new(Node::new_from_create(&child_path, time, &self.meta).await);
         if child.path.is_dir() {
-            let res = child.scan_all(time).await;
-            unwrap_res!(res);
+            child.scan_all(time).await?;
         }
         let mut parent_data = self.data.write().await;
         parent_data.children.insert(name.clone(), child);

@@ -25,16 +25,6 @@ pub type MpscSender<T> = tokio::sync::mpsc::Sender<T>;
 pub type MpscReceiver<T> = tokio::sync::mpsc::Receiver<T>;
 pub type ServiceHandle = tokio::task::JoinHandle<Result<(), tonic::transport::Error>>;
 
-#[macro_export]
-macro_rules! unwrap_res {
-    ($expr:expr) => {
-        match $expr {
-            Ok(val) => val,
-            Err(err) => return Err(err.to_string()),
-        }
-    };
-}
-
 pub fn sync_folder_prefix(id: i32) -> String {
     format!("{}replica-{}", TMP_PATH, id)
 }

@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 use crate::{
     config::{sync_folder_prefix, RpcChannel},
     reptra::{QueryRes, RsyncClient},
-    unwrap_res, MyResult,
+    MyResult,
 };
 
 use self::{
@@ -59,8 +59,7 @@ impl Replica {
     pub async fn init_all(&self) -> MyResult<()> {
         // init the whole file tree, all inintial is in time 1
         let init_counter = self.add_counter().await;
-        let res = self.base_node.scan_all(init_counter).await;
-        unwrap_res!(res);
+        self.base_node.scan_all(init_counter).await?;
         self.base_node
             .data
             .write()
