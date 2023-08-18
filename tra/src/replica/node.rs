@@ -310,32 +310,23 @@ impl Node {
                     // create method : from parent node handling it
                     self.create_child(&op.name, op.time).await?;
                 }
-                ModType::Delete => {
-                    let mut data = self.data.write().await;
-                    let deleted = data
+                ModType::Delete | ModType::MovedFrom => {
+                    let mut cur_data = self.data.write().await;
+                    let deleted = cur_data
                         .children
                         .get(&op.name)
                         .ok_or("Delete Error : Node not found when handling Delete Event")?;
-                    deleted.delete_rm(op.time).await?;
-                    data.mod_time.update_one(self.meta.id, op.time);
+                    deleted.delete_node(op.time).await?;
+                    cur_data.mod_time.update_one(self.meta.id, op.time);
                 }
                 ModType::Modify => {
-                    let mut data = self.data.write().await;
-                    let modified = data
+                    let mut cur_data = self.data.write().await;
+                    let modified = cur_data
                         .children
                         .get(&op.name)
                         .ok_or("Modify Error : Node not found when handling Modify event")?;
-                    modified.modify_self(op.time).await?;
-                    data.mod_time.update_one(self.meta.id, op.time);
-                }
-                ModType::MovedFrom => {
-                    let mut data = self.data.write().await;
-                    let deleted = data
-                        .children
-                        .get(&op.name)
-                        .ok_or("Delete Error : Node not found when handling MovedTo event")?;
-                    deleted.delete_moved_from(op.time).await?;
-                    data.mod_time.update_one(self.meta.id, op.time);
+                    modified.modify_node(op.time).await?;
+                    cur_data.mod_time.update_one(self.meta.id, op.time);
                 }
             };
         };
@@ -411,7 +402,7 @@ impl Node {
         Ok(())
     }
 
-    pub async fn modify_self(&self, time: i32) -> MyResult<()> {
+    pub async fn modify_node(&self, time: i32) -> MyResult<()> {
         LocalBanner::modify(&self.path);
 
         let mut data = self.data.write().await;
@@ -420,56 +411,29 @@ impl Node {
         Ok(())
     }
 
-    // just one file, actually removed in file system
-    // and the watch descriptor is automatically removed
-    pub async fn delete_rm(&self, time: i32) -> MyResult<()> {
+    #[async_recursion]
+    pub async fn delete_node(&self, time: i32) -> MyResult<()> {
         LocalBanner::delete(&self.path);
 
-        let mut data = self.data.write().await;
-        // the file system cannot delete a directory that is not empty
-        for (_, child) in data.children.iter() {
-            if child.data.read().await.status.exist() {
-                return Err("Delete Error : Directory not empty".into());
-            }
-        }
-        data.mod_time.update_one(self.meta.id, time);
-        data.sync_time.update_one(self.meta.id, time);
-        data.status.set_deleted();
-        if data.wd.is_some() {
-            let wd = data.wd.take().unwrap();
-            if let Ok(_) = self.meta.watch.remove_watch(self.path.as_ref(), &wd).await {
-                return Err(
-                    "Delet Error : Watcher is not automatically removed when \"rm\" a file".into(),
-                );
-            }
-        }
-        Ok(())
-    }
+        let mut cur_data = self.data.write().await;
 
-    // we should manually remove the watcher descriptor here
-    // as the file is moved to another space
-    #[async_recursion]
-    pub async fn delete_moved_from(&self, time: i32) -> MyResult<()> {
-        let mut data = self.data.write().await;
-        if data.status.deleted() {
+        if cur_data.status.deleted() {
             return Ok(());
         }
-        for (_, child) in data.children.iter() {
-            unwrap_res!(child.delete_moved_from(time).await);
-        }
-        LocalBanner::delete(&self.path);
 
-        // TODO
-        data.sync_time.update_one(self.meta.id, time);
-        data.sync_time.update_one(self.meta.id, time);
-        data.status.set_deleted();
-        if data.wd.is_some() {
-            let wd = data.wd.take().unwrap();
-            self.meta
-                .watch
-                .remove_watch(self.path.as_ref(), &wd)
-                .await?;
+        cur_data.mod_time.update_one(self.meta.id, time);
+        cur_data.sync_time.update_one(self.meta.id, time);
+        cur_data.status.set_deleted();
+
+        // the file may not have a wd, just a file
+        if let Some(wd) = cur_data.wd.take() {
+            // the wd destoryed by OS or manually here
+            let _ = self.meta.watch.remove_watch(self.path.as_ref(), &wd).await;
+            for (_, child) in cur_data.children.iter() {
+                child.delete_node(time).await?;
+            }
         }
+
         Ok(())
     }
 
