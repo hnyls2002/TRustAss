@@ -240,11 +240,11 @@ impl Node {
 
     // the new temporary node which is not exist in the file system
     // when any ground sycnchronization happens, we will make it exist
-    pub fn new_tmp(meta: &Arc<Meta>, tmp_path: &PathLocal, sync_time: &VectorTime) -> Self {
+    pub fn new_tmp(meta: &Arc<Meta>, tmp_path: &PathLocal, parent_sync_time: &VectorTime) -> Self {
         let data = NodeData {
             children: HashMap::new(),
             mod_time: VectorTime::default(),
-            sync_time: sync_time.clone(),
+            sync_time: parent_sync_time.clone(),
             create_time: SingletonTime::new(0, 0),
             status: NodeStatus::Deleted,
             wd: None,
@@ -511,10 +511,10 @@ impl Node {
         }
 
         cur_data.pushup_mod().await;
-        cur_data.sync_time = remote_data.sync_time;
+        cur_data.sync_time = remote_data.sync_time.clone();
         cur_data.sync_time.update_one(self.meta.id, op.time);
 
-        if remote_data.status.deleted() && cur_data.mod_time.leq(&remote_data.mod_time) {
+        if remote_data.status.deleted() && cur_data.mod_time.leq(&remote_data.sync_time) {
             assert!(have_any_child_exist.deleted());
             SyncBanner::delete(&self.path);
 
@@ -637,6 +637,7 @@ impl Node {
             }
             SyncType::Override => {
                 cur_data.create_time = remote_data.create_time.clone();
+                assert!(cur_data.status.exist());
             }
             SyncType::Delete => cur_data.status.set_deleted(),
         }
