@@ -274,21 +274,26 @@ impl Node {
     // scan all the files (which are not detected before) in the directory
     #[async_recursion]
     pub async fn scan_all(&self, init_time: i32) -> MyResult<()> {
+        let mut cur_data = self.data.write().await;
         let mut sub_files = tokio::fs::read_dir(self.path.as_ref())
             .await
             .or(Err("Scan All Error : read dir error"))?;
+
+        // let mut join_set = tokio::task::JoinSet::new();
+        let mut join_set = tokio::task::JoinSet::new();
         while let Some(sub_file) = sub_files.next_entry().await.unwrap() {
             let path = PathLocal::new_from_local(self.path.prefix(), sub_file.path());
             let child = Arc::new(Node::new_from_create(&path, init_time, &self.meta).await);
+            cur_data.children.insert(child.file_name(), child.clone());
             if child.path.is_dir() {
-                child.scan_all(init_time).await?;
+                join_set.spawn(async move { child.scan_all(init_time).await });
             }
-            self.data
-                .write()
-                .await
-                .children
-                .insert(child.file_name(), child);
         }
+
+        while let Some(res) = join_set.join_next().await {
+            res.or(Err("Scan All Error : join error"))??;
+        }
+
         Ok(())
     }
 
