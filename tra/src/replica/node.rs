@@ -495,11 +495,18 @@ impl Node {
             });
         }
 
+        /*
+         * a dir would be created :  as long as local node is deleted (remote then exists, otherwise skip)
+         * a dir would be deleted : remote node is deleted && remote is newer
+         */
+
         // join all the child threads
+        let mut have_any_child_exist = NodeStatus::Deleted;
         while let Some(res) = join_set.join_next().await {
             let (res, child) = res.or::<String>(Err("Sync Node : thread join error".into()))??;
             if res.exist() {
                 cur_data.children.insert(child.file_name(), child);
+                have_any_child_exist.set_exist();
             }
         }
 
@@ -508,10 +515,11 @@ impl Node {
         cur_data.sync_time.update_one(self.meta.id, op.time);
 
         if remote_data.status.deleted() && cur_data.mod_time.leq(&remote_data.mod_time) {
-            assert!(cur_data.children.is_empty());
+            assert!(have_any_child_exist.deleted());
             SyncBanner::delete(&self.path);
 
             cur_data.status.set_deleted();
+
             let wd = cur_data.wd.take().unwrap();
             self.meta
                 .watch
