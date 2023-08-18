@@ -38,15 +38,14 @@ impl Rsync for PeerServer {
     async fn fetch_patch(&self, req: Request<FetchPatchReq>) -> Result<Response<Patch>, Status> {
         let inner = req.into_inner();
         let path = PathLocal::new_from_rel(&self.replica.base_node.path.prefix(), &inner.path_rel);
-        let sig = Signature::deserialize(inner.sig).or(Err(Status::invalid_argument(
-            "signature deserialized failed",
-        )))?;
+        let sig = Signature::deserialize(inner.sig)
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
         let index_sig = sig.index();
         let data = read_bytes(&path)
             .await
             .map_err(|e| Status::invalid_argument(e))?;
         let mut delta: Vec<u8> = Vec::new();
-        diff(&index_sig, &data, &mut delta).or(Err(Status::invalid_argument("diff failed")))?;
+        diff(&index_sig, &data, &mut delta).map_err(|e| Status::invalid_argument(e.to_string()))?;
         Ok(Response::new(Patch { delta }))
     }
 

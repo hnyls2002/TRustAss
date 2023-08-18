@@ -96,11 +96,7 @@ impl Replica {
     pub async fn handle_query(&self, path: &String) -> MyResult<QueryRes> {
         let path = PathLocal::new_from_rel(&self.base_node.path.prefix(), path);
         let walk = path.get_walk();
-        let mut ret = self
-            .base_node
-            .handle_query(walk)
-            .await
-            .or(Err("Handle Query : cannot find data"))?;
+        let mut ret = self.base_node.handle_query(walk).await?;
         ret.sync_time
             .insert(self.meta.id, self.read_counter().await);
         Ok(ret)

@@ -71,7 +71,7 @@ impl Reptra {
         port_sender
             .send_port(Request::new(msg))
             .await
-            .or(Err("failed to send port"))?;
+            .map_err(|e| "failed to send port : ".to_string() + &e.to_string())?;
         Ok(())
     }
 

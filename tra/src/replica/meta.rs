@@ -67,7 +67,7 @@ pub async fn sync_bytes(path: &PathLocal, mut client: RsyncClient<RpcChannel>) -
     let patch = client
         .fetch_patch(request)
         .await
-        .or(Err("Sync Bytes : fetch patch failed"))?;
+        .map_err(|e| "unable to fetch patch".to_string() + &e.to_string())?;
     let delta = patch.into_inner().delta;
     let mut out: Vec<u8> = Vec::new();
     apply(&data, &delta, &mut out).or(Err("Sync Bytes : apply failed"))?;

@@ -124,7 +124,7 @@ impl SyncOption {
                 path_rel: path.to_rel(),
             }))
             .await
-            .or(Err("query failed"))?
+            .map_err(|e| "query failed".to_string() + &e.to_string())?
             .into_inner();
         Ok(res.to_data())
     }
