@@ -57,7 +57,10 @@ pub async fn write_bytes(path: &PathLocal, data: impl AsRef<[u8]>) -> MyResult<(
     Ok(())
 }
 
-pub async fn sync_bytes(path: &PathLocal, mut client: RsyncClient<RpcChannel>) -> MyResult<()> {
+pub async fn get_sync_bytes(
+    path: &PathLocal,
+    mut client: RsyncClient<RpcChannel>,
+) -> MyResult<Vec<u8>> {
     let data = read_bytes(path).await?;
     let sig = Signature::calculate(&data, SIG_OPTION);
     let request = FetchPatchReq {
@@ -69,11 +72,15 @@ pub async fn sync_bytes(path: &PathLocal, mut client: RsyncClient<RpcChannel>) -
         .await
         .map_err(|e| "unable to fetch patch".to_string() + &e.to_string())?;
     let delta = patch.into_inner().delta;
-    let mut out: Vec<u8> = Vec::new();
-    apply(&data, &delta, &mut out).or(Err("Sync Bytes : apply failed"))?;
-    write_bytes(&path, out).await?;
-    info!("The size of data is {}", data.len());
-    info!("The size of patch is {}", delta.len());
+    let mut synced: Vec<u8> = Vec::new();
+    apply(&data, &delta, &mut synced).or(Err("Sync Bytes : apply failed"))?;
+    // info!("The size of data is {}, the size of patch is {}", data.len(), delta.len());
+    Ok(synced)
+}
+
+pub async fn sync_bytes(path: &PathLocal, client: RsyncClient<RpcChannel>) -> MyResult<()> {
+    let synced = get_sync_bytes(path, client).await?;
+    write_bytes(&path, synced).await?;
     Ok(())
 }
 

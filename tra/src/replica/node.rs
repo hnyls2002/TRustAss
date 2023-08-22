@@ -1,6 +1,7 @@
 use std::{collections::HashMap, ops::BitOrAssign, sync::Arc};
 
 use async_recursion::async_recursion;
+use dialoguer::{theme::ColorfulTheme, Select};
 use inotify::{EventMask, WatchDescriptor};
 use tokio::sync::{RwLock, RwLockWriteGuard};
 use tonic::Request;
@@ -8,7 +9,7 @@ use tonic::Request;
 use crate::{
     banner::{LocalBanner, SyncBanner},
     config::RpcChannel,
-    conflicts::conflicts_resolve,
+    conflicts::manually_resolve,
     replica::{
         meta::{create_dir_all, delete_empty_dir, delete_file, sync_bytes},
         Meta,
@@ -568,7 +569,7 @@ impl Node {
             } else {
                 // report conflicts
                 SyncBanner::conflict(&self.path);
-                conflicts_resolve();
+                self.sync_conflicts(op, &wd, cur_data, remote_data).await?;
             }
         } else if cur_data.status.exist() || remote_data.status.exist() {
             if remote_data.status.deleted() {
@@ -580,7 +581,7 @@ impl Node {
                             .await?;
                     } else {
                         SyncBanner::conflict(&self.path);
-                        conflicts_resolve();
+                        self.sync_conflicts(op, &wd, cur_data, remote_data).await?;
                     }
                 } else {
                     SyncBanner::skip_from_independent_empty(&self.path);
@@ -592,7 +593,7 @@ impl Node {
                         SyncBanner::skip_newer(&self.path);
                     } else {
                         SyncBanner::conflict(&self.path);
-                        conflicts_resolve();
+                        self.sync_conflicts(op, &wd, cur_data, remote_data).await?;
                     }
                 } else {
                     SyncBanner::create_to_independent_empty(&self.path);
@@ -643,5 +644,41 @@ impl Node {
         }
 
         Ok(())
+    }
+
+    pub async fn sync_conflicts(
+        &self,
+        op: SyncOption,
+        wd: &WatchDescriptor,
+        cur_data: &mut RwLockWriteGuard<'_, NodeData>,
+        remote_data: &RemoteData,
+    ) -> MyResult<()> {
+        let choices = &[
+            "use the local version",
+            "use the remote version",
+            "handle manually",
+        ];
+        let selection = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("Conflict detected, please choose a resolution:")
+            .items(choices)
+            .default(0)
+            .interact()
+            .unwrap();
+
+        assert!(cur_data.wd.is_none());
+        self.meta.watch.freeze_watch(wd).await;
+
+        match selection {
+            0 => {}
+            1 => {}
+            2 => {
+                manually_resolve(&self.path, op).await?;
+            }
+            _ => unreachable!(),
+        }
+
+        self.meta.watch.unfreeze_watch(wd).await;
+
+        todo!()
     }
 }
