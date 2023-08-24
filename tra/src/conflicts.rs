@@ -19,8 +19,8 @@ pub fn format_diff(diffed: Vec<diff::Result<&str>>) -> String {
             diff::Result::Both(s, _) => {
                 match last_status {
                     diff::Result::Both(_, _) => {}
-                    diff::Result::Left(_) => tui.push_str("<<<<<<< LOCAL BEGIN\n"),
-                    diff::Result::Right(_) => tui.push_str(">>>>>>> REMOTE BEGIN\n"),
+                    diff::Result::Left(_) => tui.push_str("<<<<<<< LOCAL END\n"),
+                    diff::Result::Right(_) => tui.push_str(">>>>>>> REMOTE END\n"),
                 }
                 tui.push_str(format!("{}\n", s).as_str());
                 last_status = diff::Result::Both("", "");
@@ -30,8 +30,8 @@ pub fn format_diff(diffed: Vec<diff::Result<&str>>) -> String {
                     diff::Result::Both(_, _) => tui.push_str("<<<<<<< LOCAL BEGIN\n"),
                     diff::Result::Left(_) => {}
                     diff::Result::Right(_) => {
-                        tui.push_str("<<<<<<< LOCAL END\n");
-                        tui.push_str(">>>>>>> REMOTE BEGIN\n");
+                        tui.push_str("<<<<<<< REMOTE END\n");
+                        tui.push_str(">>>>>>> LOCAL BEGIN\n");
                     }
                 }
                 tui.push_str(format!("{}\n", s).as_str());
@@ -42,8 +42,8 @@ pub fn format_diff(diffed: Vec<diff::Result<&str>>) -> String {
                 match last_status {
                     diff::Result::Both(_, _) => tui.push_str(">>>>>>> REMOTE BEGIN\n"),
                     diff::Result::Left(_) => {
-                        tui.push_str(">>>>>>> REMOTE END\n");
-                        tui.push_str("<<<<<<< LOCAL BEGIN\n");
+                        tui.push_str(">>>>>>> LOCAL END\n");
+                        tui.push_str("<<<<<<< REMOTE BEGIN\n");
                     }
                     diff::Result::Right(_) => {}
                 }
