@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use fast_rsync::{apply, Signature};
-use tokio::io::AsyncWriteExt;
+use tokio::{io::AsyncWriteExt, sync::Mutex};
 
 use crate::{
     config::{RpcChannel, SIG_OPTION},
@@ -12,11 +14,12 @@ use super::{file_watcher::WatchIfc, path_local::PathLocal};
 pub struct Meta {
     pub(super) id: i32,
     pub(super) watch: WatchIfc,
+    pub(super) c_lock: Arc<Mutex<()>>,
 }
 
 impl Meta {
-    pub fn new(id: i32, watch: WatchIfc) -> Self {
-        Self { id, watch }
+    pub fn new(id: i32, watch: WatchIfc, c_lock: Arc<Mutex<()>>) -> Self {
+        Self { id, watch, c_lock }
     }
 }
 

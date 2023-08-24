@@ -7,7 +7,7 @@ pub mod query;
 use std::{ffi::OsStr, sync::Arc};
 
 use inotify::{Event, EventMask};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::{
     config::{sync_folder_prefix, RpcChannel},
@@ -39,8 +39,8 @@ impl Replica {
         *now
     }
 
-    pub async fn new(id: i32, watch: WatchIfc) -> Self {
-        let meta = Arc::new(Meta::new(id, watch));
+    pub async fn new(id: i32, watch: WatchIfc, c_lock: Arc<Mutex<()>>) -> Self {
+        let meta = Arc::new(Meta::new(id, watch, c_lock));
         let path = PathLocal::new_from_rel(sync_folder_prefix(id), "");
         if !path.exists() {
             tokio::fs::create_dir(&path).await.unwrap();

@@ -568,6 +568,7 @@ impl Node {
                 SyncBanner::skip_newer(&self.path);
             } else {
                 // report conflicts
+                let _guard = self.meta.c_lock.lock().await;
                 SyncBanner::conflict(&self.path);
                 self.sync_conflicts(op, &wd, cur_data, remote_data).await?;
             }
@@ -580,6 +581,7 @@ impl Node {
                         self.sync_work(SyncType::Delete, op, &wd, cur_data, remote_data)
                             .await?;
                     } else {
+                        let _guard = self.meta.c_lock.lock().await;
                         SyncBanner::conflict(&self.path);
                         self.sync_conflicts(op, &wd, cur_data, remote_data).await?;
                     }
@@ -592,6 +594,7 @@ impl Node {
                     if remote_data.mod_time.leq(&cur_data.sync_time) {
                         SyncBanner::skip_newer(&self.path);
                     } else {
+                        let _guard = self.meta.c_lock.lock().await;
                         SyncBanner::conflict(&self.path);
                         self.sync_conflicts(op, &wd, cur_data, remote_data).await?;
                     }

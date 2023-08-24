@@ -17,7 +17,7 @@ use crate::{
 use inotify::EventMask;
 use peer_server::PeerServer;
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tonic::{transport::Server, Request};
 
 pub use peer::{
@@ -39,7 +39,8 @@ impl Reptra {
         let (serve_addr, incoming) = get_listener().await?;
         let file_watcher = FileWatcher::new();
         let watch = file_watcher.get_ifc();
-        let replica = Arc::new(Replica::new(id, watch).await);
+        let c_lock = Arc::new(Mutex::new(()));
+        let replica = Arc::new(Replica::new(id, watch, c_lock).await);
         replica.init_all().await?;
         // replica.tree(false).await;
         let peer_server = PeerServer {
