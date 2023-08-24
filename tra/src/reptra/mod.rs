@@ -89,7 +89,7 @@ impl Reptra {
                 if event.mask != EventMask::IGNORED
                     && !self.file_watcher.borrow().is_freezed(&event.wd).await
                 {
-                    // self.file_watcher.display_event(&event).await;
+                    self.file_watcher.borrow().display_event(&event).await;
                     self.replica.handle_event(&event).await.unwrap();
                     self.replica.tree(true).await;
                 }

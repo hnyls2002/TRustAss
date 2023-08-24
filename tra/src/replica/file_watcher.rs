@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ffi::OsStr, path::Path, sync::Arc};
+use std::{collections::HashMap, ffi::OsStr, os::raw::c_int, path::Path, sync::Arc};
 
 use inotify::{Event, Inotify, WatchDescriptor, WatchMask, Watches};
 use lazy_static::lazy_static;
@@ -19,15 +19,14 @@ lazy_static! {
 pub struct FileWatcher {
     pub inotify: Inotify,
     pub wd_map: Arc<RwLock<HashMap<WatchDescriptor, PathLocal>>>,
-    pub freeze_set: Arc<RwLock<HashMap<WatchDescriptor, usize>>>,
-    pub cnt: i32,
+    pub freeze_count_map: Arc<RwLock<HashMap<c_int, usize>>>,
 }
 
 #[derive(Clone)]
 pub struct WatchIfc {
     watches: Watches,
     wd_map: Arc<RwLock<HashMap<WatchDescriptor, PathLocal>>>,
-    freeze_count_map: Arc<RwLock<HashMap<WatchDescriptor, usize>>>,
+    freeze_count_map: Arc<RwLock<HashMap<c_int, usize>>>,
 }
 
 impl FileWatcher {
@@ -35,8 +34,7 @@ impl FileWatcher {
         Self {
             inotify: Inotify::init().expect("Failed to initialize inotify"),
             wd_map: Arc::new(RwLock::new(HashMap::new())),
-            freeze_set: Arc::new(RwLock::new(HashMap::new())),
-            cnt: 0,
+            freeze_count_map: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -44,22 +42,21 @@ impl FileWatcher {
         WatchIfc {
             watches: self.inotify.watches(),
             wd_map: self.wd_map.clone(),
-            freeze_count_map: self.freeze_set.clone(),
+            freeze_count_map: self.freeze_count_map.clone(),
         }
     }
 
     pub async fn is_freezed(&self, wd: &WatchDescriptor) -> bool {
-        self.freeze_set
+        self.freeze_count_map
             .read()
             .await
-            .get(wd)
+            .get(&wd.get_watch_descriptor_id())
             .map_or(false, |v| *v > 0)
     }
 
-    pub async fn display_event(&mut self, event: &Event<&OsStr>) {
-        self.cnt = self.cnt + 1;
+    pub async fn display_event(&self, event: &Event<&OsStr>) {
         let path = self.wd_map.read().await.get(&event.wd).unwrap().clone();
-        println!("Event: {}", self.cnt);
+        println!("Id  : {}", event.wd.get_watch_descriptor_id());
         println!("Path : {}", path.display());
         println!("Mask : {:?}", event.mask);
         println!("Name : {:?}", event.name);
@@ -100,16 +97,17 @@ impl WatchIfc {
         self.freeze_count_map
             .write()
             .await
-            .entry(wd.clone())
+            .entry(wd.get_watch_descriptor_id())
             .and_modify(|v| *v += 1)
             .or_insert(1);
     }
 
     pub async fn unfreeze_watch(&self, wd: &WatchDescriptor) {
         let mut mp = self.freeze_count_map.write().await;
-        mp.entry(wd.clone()).and_modify(|v| *v -= 1);
-        if mp.get(wd).unwrap() == &0 {
-            mp.remove(wd);
+        mp.entry(wd.get_watch_descriptor_id())
+            .and_modify(|v| *v -= 1);
+        if mp.get(&wd.get_watch_descriptor_id()).unwrap() == &0 {
+            mp.remove(&wd.get_watch_descriptor_id());
         }
     }
 }
