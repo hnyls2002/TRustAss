@@ -1,9 +1,9 @@
+pub mod banner;
 pub mod centra;
 pub mod checker;
 pub mod config;
 pub mod conflicts;
 pub mod debugger;
-pub mod banner;
 pub mod machine;
 pub mod replica;
 pub mod reptra;

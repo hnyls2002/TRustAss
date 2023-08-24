@@ -653,11 +653,18 @@ impl Node {
         cur_data: &mut RwLockWriteGuard<'_, NodeData>,
         remote_data: &RemoteData,
     ) -> MyResult<()> {
-        let choices = &[
-            "use the local version",
-            "use the remote version",
-            "handle manually",
+        let choices = &mut [
+            "use the local version".to_string(),
+            "use the remote version".to_string(),
+            "handle manually".to_string(),
         ];
+        if cur_data.status.deleted() {
+            choices[0].push_str("(deleted)");
+        }
+        if remote_data.status.deleted() {
+            choices[1].push_str("(deleted)");
+        }
+
         let selection = Select::with_theme(&ColorfulTheme::default())
             .with_prompt("Conflict detected, please choose a resolution:")
             .items(choices)
@@ -665,20 +672,37 @@ impl Node {
             .interact()
             .unwrap();
 
+        // the conflicted should be a file instead of a dir
         assert!(cur_data.wd.is_none());
+        assert!(cur_data.children.is_empty());
         self.meta.watch.freeze_watch(wd).await;
+
+        // what ever the choice is, we should pass the sync time
+        cur_data.sync_time = remote_data.sync_time.clone();
+        cur_data.sync_time.update_one(self.meta.id, op.time);
 
         match selection {
             0 => {}
-            1 => {}
+            1 => {
+                sync_bytes(&self.path, op.client).await?;
+                // use the remote version, pass all the infos to local
+                cur_data.mod_time = remote_data.mod_time.clone();
+                cur_data.create_time = remote_data.create_time.clone();
+                cur_data.status = remote_data.status.clone();
+            }
             2 => {
-                manually_resolve(&self.path, op).await?;
+                manually_resolve(&self.path, op.clone()).await?;
+                cur_data.mod_time.update_one(self.meta.id, op.time);
+                if cur_data.status.deleted() {
+                    cur_data.status.set_exist();
+                    cur_data.create_time = SingletonTime::new(self.meta.id, op.time);
+                }
             }
             _ => unreachable!(),
         }
 
         self.meta.watch.unfreeze_watch(wd).await;
 
-        todo!()
+        Ok(())
     }
 }

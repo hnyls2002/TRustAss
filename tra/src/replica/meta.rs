@@ -3,7 +3,6 @@ use tokio::io::AsyncWriteExt;
 
 use crate::{
     config::{RpcChannel, SIG_OPTION},
-    info,
     reptra::{FetchPatchReq, RsyncClient},
     MyResult,
 };

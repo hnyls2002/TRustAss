@@ -3,8 +3,9 @@ use std::str::from_utf8;
 use tokio::process::Command;
 
 use crate::{
+    info,
     replica::{
-        meta::{get_sync_bytes, write_bytes},
+        meta::{get_sync_bytes, read_bytes, write_bytes},
         node::SyncOption,
         path_local::PathLocal,
     },
@@ -52,13 +53,16 @@ pub fn format_diff(diffed: Vec<diff::Result<&str>>) -> String {
             }
         }
     }
+    if last_status == diff::Result::Left("") {
+        tui.push_str("<<<<<<< LOCAL END\n");
+    } else if last_status == diff::Result::Right("") {
+        tui.push_str(">>>>>>> REMOTE END\n");
+    }
     tui
 }
 
 pub async fn manually_resolve(path: &PathLocal, op: SyncOption) -> MyResult<()> {
-    let original = tokio::fs::read(path)
-        .await
-        .map_err(|e| format!("Read Bytes : read bytes failed: {}", e))?;
+    let original = read_bytes(path).await?;
     let synced = get_sync_bytes(path, op.client).await?;
     let diffed = lines(
         from_utf8(&original.as_slice()).unwrap(),
@@ -72,6 +76,10 @@ pub async fn manually_resolve(path: &PathLocal, op: SyncOption) -> MyResult<()> 
         .status()
         .await
         .expect("failed to execute editor");
-
-    todo!()
+    if edit_command.success() {
+        info!("Manually resolved, save user's modification in local file");
+    } else {
+        panic!("failed to execute editor");
+    }
+    Ok(())
 }
