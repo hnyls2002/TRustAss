@@ -9,6 +9,7 @@ pub mod controller {
 use std::collections::HashMap;
 
 use crate::{
+    banner::BannerOut,
     config::{MpscReceiver, MpscSender, ServiceHandle},
     machine::ServeAddr,
 };
@@ -16,7 +17,6 @@ use tokio::sync::mpsc;
 use tonic::transport::Server;
 
 use crate::config::CHANNEL_BUFFER_SIZE;
-use crate::info;
 
 pub use controller::{
     greeter_client::GreeterClient,
@@ -65,7 +65,7 @@ impl Centra {
         self.service_handle = Some(tokio::spawn(async {
             let res = server.await;
             println!("");
-            info!("Shutting down the tra server...");
+            println!("Shutting down the tra server...");
             res
         }));
     }
@@ -74,7 +74,11 @@ impl Centra {
         for _ in 0..rep_num {
             if let Some((id, serve_addr)) = self.addr_rx.recv().await {
                 self.id_map.insert(id, serve_addr);
-                info!("id : {}, port : {} collected", id, serve_addr.port());
+                BannerOut::check(format!(
+                    "id : {}, port : {} collected",
+                    id,
+                    serve_addr.port()
+                ));
             } else {
                 panic!("The port collect channel is closed unexpectedly.");
             }

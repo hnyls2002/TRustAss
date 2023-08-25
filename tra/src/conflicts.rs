@@ -3,7 +3,7 @@ use std::str::from_utf8;
 use tokio::process::Command;
 
 use crate::{
-    info,
+    banner::BannerOut,
     replica::{
         meta::{get_sync_bytes, read_bytes, write_bytes},
         node::SyncOption,
@@ -61,7 +61,7 @@ pub fn format_diff(diffed: Vec<diff::Result<&str>>) -> String {
     tui
 }
 
-pub async fn manually_resolve(path: &PathLocal, op: SyncOption) -> MyResult<()> {
+pub async fn manually_resolve(path: &PathLocal, op: SyncOption) -> MyResult<bool> {
     let original = read_bytes(path).await?;
     let synced = get_sync_bytes(path, op.client).await?;
     let diffed = lines(
@@ -76,10 +76,9 @@ pub async fn manually_resolve(path: &PathLocal, op: SyncOption) -> MyResult<()> 
         .status()
         .await
         .expect("failed to execute editor");
-    if edit_command.success() {
-        info!("Manually resolved, save user's modification in local file");
-    } else {
-        panic!("failed to execute editor");
+    if !edit_command.success() {
+        BannerOut::cross("failed to execute editor");
+        return Ok(false);
     }
-    Ok(())
+    Ok(true)
 }

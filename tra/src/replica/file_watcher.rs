@@ -4,7 +4,10 @@ use inotify::{Event, Inotify, WatchDescriptor, WatchMask, Watches};
 use lazy_static::lazy_static;
 use tokio::sync::RwLock;
 
-use crate::{info, MyResult};
+use crate::{
+    banner::{BannerOut, LocalBanner},
+    debug, MyResult,
+};
 
 use super::path_local::PathLocal;
 
@@ -56,11 +59,11 @@ impl FileWatcher {
 
     pub async fn display_event(&self, event: &Event<&OsStr>) {
         let path = self.wd_map.read().await.get(&event.wd).unwrap().clone();
-        println!("Id  : {}", event.wd.get_watch_descriptor_id());
-        println!("Path : {}", path.display());
-        println!("Mask : {:?}", event.mask);
-        println!("Name : {:?}", event.name);
-        println!("==============================================");
+        debug!("Id  : {}", event.wd.get_watch_descriptor_id());
+        debug!("Path : {}", path.display());
+        debug!("Mask : {:?}", event.mask);
+        debug!("Name : {:?}", event.name);
+        debug!("==============================================");
     }
 }
 
@@ -68,9 +71,12 @@ impl WatchIfc {
     pub async fn add_watch(&self, path: &PathLocal) -> Option<WatchDescriptor> {
         // watching directory is enough
         let mut tmp_watches = self.watches.clone();
-        assert!(path.exists(), "Path not exist");
+        // maybe the file is temporary and deleted immediately
+        if !path.exists() {
+            BannerOut::warn(format!("Path does not exist : {}", path.display()));
+        }
         if path.is_dir() {
-            info!("add_watches: {}", path.display());
+            LocalBanner::new_watch(path);
             let wd = tmp_watches.add(path, *WATCH_EVENTS).unwrap();
             self.wd_map.write().await.insert(wd.clone(), path.clone());
             Some(wd)
@@ -80,7 +86,7 @@ impl WatchIfc {
     }
 
     pub async fn remove_watch(&self, path: impl AsRef<Path>, wd: &WatchDescriptor) -> MyResult<()> {
-        info!("remove_watches: {}", path.as_ref().display());
+        LocalBanner::remove_watch(path);
         self.wd_map.write().await.remove(wd);
         let mut tmp_watches = self.watches.clone();
         tmp_watches

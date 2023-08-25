@@ -6,9 +6,9 @@ pub mod peer {
 }
 
 use crate::{
+    banner::BannerOut,
     centra::{GreeterClient, HelloRequest, PortCollectClient, PortNumber},
     config::{ServiceHandle, CHANNEL_BUFFER_SIZE},
-    info,
     machine::{channel_connect, get_listener, ServeAddr},
     replica::{file_watcher::FileWatcher, Replica},
     MyResult,
@@ -89,7 +89,7 @@ impl Reptra {
                 if event.mask != EventMask::IGNORED
                     && !self.file_watcher.borrow().is_freezed(&event.wd).await
                 {
-                    self.file_watcher.borrow().display_event(&event).await;
+                    // self.file_watcher.borrow().display_event(&event).await;
                     self.replica.handle_event(&event).await.unwrap();
                     self.replica.tree(true).await;
                 }
@@ -109,6 +109,6 @@ pub async fn reptra_greet_test(id: i32, centra_addr: &ServeAddr) -> MyResult<()>
         let response_msg = response.unwrap().into_inner().message;
         println!("Response from Centra : {}", response_msg);
     }
-    info!("greet test passed");
+    BannerOut::check(format!("Reptra {} greet test passed", id));
     Ok(())
 }

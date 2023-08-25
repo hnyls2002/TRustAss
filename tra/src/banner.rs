@@ -1,63 +1,136 @@
-use crate::{info, replica::path_local::PathLocal};
+use std::path::Path;
+
+use crate::replica::path_local::PathLocal;
+
+pub struct BannerOut;
 
 pub struct LocalBanner;
 
 pub struct SyncBanner;
 
+impl BannerOut {
+    pub fn check(msg: impl AsRef<str>) {
+        println!("✔  {}", msg.as_ref());
+    }
+
+    pub fn new_watch(msg: impl AsRef<str>) {
+        println!("👀 {}", msg.as_ref());
+    }
+
+    pub fn remove_watch(msg: impl AsRef<str>) {
+        println!("\x1b[9m👀\x1b[0m {}", msg.as_ref());
+    }
+
+    pub fn new_sync(msg: impl AsRef<str>) {
+        println!("🔄 {}", msg.as_ref());
+    }
+
+    pub fn event(msg: impl AsRef<str>) {
+        println!("📢 {}", msg.as_ref());
+    }
+
+    pub fn cross(msg: impl AsRef<str>) {
+        println!("❌ {}", msg.as_ref());
+    }
+
+    pub fn resolve(msg: impl AsRef<str>) {
+        println!("🔧 {}", msg.as_ref());
+    }
+
+    pub fn warn(msg: impl AsRef<str>) {
+        println!("⚠️ {}", msg.as_ref());
+    }
+}
+
 impl LocalBanner {
+    pub fn new_watch(path: impl AsRef<Path>) {
+        BannerOut::new_watch(format!(
+            "Local Watch: \"{}\" added",
+            path.as_ref().display()
+        ));
+    }
+
+    pub fn remove_watch(path: impl AsRef<Path>) {
+        BannerOut::remove_watch(format!(
+            "Local Watch: \"{}\" removed",
+            path.as_ref().display()
+        ));
+    }
+
     pub fn create(parent: &PathLocal, name: &String) {
-        info!("Local create: \"{}\" in \"{}\"", name, parent.display())
+        BannerOut::event(format!(
+            "Local Creation: \"{}\" in \"{}\"",
+            name,
+            parent.display()
+        ));
     }
 
     pub fn modify(path: &PathLocal) {
-        info!("Local modify: \"{}\"", path.display())
+        BannerOut::event(format!("Local Modification: \"{}\"", path.display()));
     }
 
     pub fn delete(path: &PathLocal) {
-        info!("Local delete: \"{}\"", path.display())
+        BannerOut::event(format!("Local Deletion: \"{}\"", path.display()));
     }
 }
 
 impl SyncBanner {
+    pub fn sync_request(id1: i32, port1: u16, id2: i32, prot2: u16, path: impl AsRef<Path>) {
+        BannerOut::new_sync(format!(
+            "Sync Request : replica-{}({}) -> replica-{}({}), path = \"{}\"",
+            id1,
+            port1,
+            id2,
+            prot2,
+            path.as_ref().display()
+        ));
+    }
+
     pub fn skip_both_deleted(path: &PathLocal) {
-        info!("Sync skip : \"{}\" (both deleted)", path.display())
+        BannerOut::check(format!("Sync Skip : \"{}\" (both deleted)", path.display()));
     }
 
     pub fn skip_newer(path: &PathLocal) {
-        info!("Sync skip : \"{}\" (newer)", path.display())
+        BannerOut::check(format!("Sync Skip : \"{}\" (newer)", path.display()));
     }
 
     pub fn skip_from_independent_empty(path: &PathLocal) {
-        info!(
-            "Sync skip : \"{}\" (from independent empty)",
+        BannerOut::check(format!(
+            "Sync Skip : \"{}\" (from independent empty)",
             path.display()
-        )
+        ));
     }
 
     pub fn skip_different_type(path: &PathLocal) {
-        info!("Sync skip : \"{}\" (different type)", path.display())
+        BannerOut::check(format!(
+            "Sync Skip : \"{}\" (different type)",
+            path.display()
+        ));
     }
 
     pub fn delete(path: &PathLocal) {
-        info!("Sync delete : \"{}\"", path.display())
+        BannerOut::check(format!("Sync Deletion : \"{}\"", path.display()));
     }
 
     pub fn create_to_independent_empty(path: &PathLocal) {
-        info!(
-            "Sync create : \"{}\" (to independent empty)",
+        BannerOut::check(format!(
+            "Sync Creation : \"{}\" (to independent empty)",
             path.display()
-        )
+        ));
     }
 
     pub fn create_for_parent(path: &PathLocal) {
-        info!("Sync create : \"{}\" (for parent)", path.display())
+        BannerOut::check(format!(
+            "Sync Creation : \"{}\" (for parent)",
+            path.display()
+        ));
     }
 
     pub fn overwrite(path: &PathLocal) {
-        info!("Sync overwrite : \"{}\"", path.display())
+        BannerOut::check(format!("Sync Overwrite : \"{}\"", path.display()));
     }
 
     pub fn conflict(path: &PathLocal) {
-        info!("Sync conflict : \"{}\"", path.display())
+        BannerOut::resolve(format!("Sync Conflict : \"{}\"", path.display()));
     }
 }

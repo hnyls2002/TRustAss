@@ -149,7 +149,6 @@ impl Node {
 
     #[async_recursion]
     pub async fn sub_tree(&self, show_detail: bool, is_last: Vec<bool>) {
-        // println!("{}", self.path.display());
         for i in 0..is_last.len() {
             let flag = is_last.get(i).unwrap();
             if i != is_last.len() - 1 {
@@ -669,7 +668,7 @@ impl Node {
         }
 
         let selection = Select::with_theme(&ColorfulTheme::default())
-            .with_prompt("Conflict detected, please choose a resolution:")
+            .with_prompt(" Conflict detected, please choose a resolution:")
             .items(choices)
             .default(0)
             .interact()
@@ -694,7 +693,7 @@ impl Node {
                 cur_data.status = remote_data.status.clone();
             }
             2 => {
-                manually_resolve(&self.path, op.clone()).await?;
+                let success = manually_resolve(&self.path, op.clone()).await?;
                 cur_data.mod_time.update_one(self.meta.id, op.time);
                 if cur_data.status.deleted() {
                     cur_data.status.set_exist();
