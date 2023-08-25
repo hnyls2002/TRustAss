@@ -13,7 +13,7 @@ use crate::{
     MyResult,
 };
 
-use super::{BoolResult, Patch, QueryReq, QueryRes, Rsync, RsyncClient, SyncReq};
+use super::{Patch, QueryReq, QueryRes, Rsync, RsyncClient, SyncReq, Void};
 
 pub struct PeerServer {
     pub replica: Arc<Replica>,
@@ -59,7 +59,7 @@ impl Rsync for PeerServer {
         Ok(Response::new(res))
     }
 
-    async fn request_sync(&self, req: Request<SyncReq>) -> Result<Response<BoolResult>, Status> {
+    async fn request_sync(&self, req: Request<SyncReq>) -> Result<Response<Void>, Status> {
         let inner = req.into_inner();
         let query_channel = self
             .get_channel(&ServeAddr::new(inner.port as u16))
@@ -70,6 +70,11 @@ impl Rsync for PeerServer {
             .handle_sync(&inner.path_rel, client)
             .await
             .map_err(|e| Status::invalid_argument(e))?;
-        Ok(Response::new(BoolResult { success: true }))
+        Ok(Response::new(Void {}))
+    }
+
+    async fn tree(&self, _req: Request<Void>) -> Result<Response<Void>, Status> {
+        self.replica.tree(true).await;
+        Ok(Response::new(Void {}))
     }
 }

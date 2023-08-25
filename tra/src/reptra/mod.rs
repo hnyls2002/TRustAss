@@ -23,7 +23,7 @@ use tonic::{transport::Server, Request};
 pub use peer::{
     rsync_client::RsyncClient,
     rsync_server::{Rsync, RsyncServer},
-    BoolResult, FetchPatchReq, Patch, QueryReq, QueryRes, SyncReq,
+    FetchPatchReq, Patch, QueryReq, QueryRes, SyncReq, Void,
 };
 
 pub struct Reptra {
@@ -91,7 +91,7 @@ impl Reptra {
                 {
                     // self.file_watcher.borrow().display_event(&event).await;
                     self.replica.handle_event(&event).await.unwrap();
-                    self.replica.tree(true).await;
+                    // self.replica.tree(true).await;
                 }
             }
         }

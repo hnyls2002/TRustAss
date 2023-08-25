@@ -15,9 +15,9 @@ message SyncReq {
   string path_rel = 2; // relative path without prefix
 }
 
-message BoolResult { bool success = 1; }
-
 message QueryReq { string path_rel = 1; }
+
+message Void {}
 
 message QueryRes {
   bool deleted = 1;
@@ -31,6 +31,7 @@ message QueryRes {
 
 service Rsync {
   rpc FetchPatch(FetchPatchReq) returns (Patch);
-  rpc RequestSync(SyncReq) returns (BoolResult);
+  rpc RequestSync(SyncReq) returns (Void);
   rpc Query(QueryReq) returns (QueryRes);
+  rpc Tree(Void) returns (Void);
 }

@@ -20,9 +20,9 @@ pub use config::MyResult;
 use rustyline::error::ReadlineError;
 use tonic::Request;
 
-use crate::reptra::SyncReq;
+use crate::reptra::{SyncReq, Void};
 
-async fn sync_command(args: Vec<&str>, centra: &Centra) -> MyResult<()> {
+async fn sync_command(args: &Vec<&str>, centra: &Centra) -> MyResult<()> {
     let id1: i32 = args.get(1).ok_or("")?.parse().or(Err(""))?;
     let id2: i32 = args.get(2).ok_or("")?.parse().or(Err(""))?;
     let path_rel = args.get(3).ok_or("")?.to_string();
@@ -46,6 +46,19 @@ async fn sync_command(args: Vec<&str>, centra: &Centra) -> MyResult<()> {
             path_rel,
         );
         client.request_sync(request).await.unwrap();
+    } else {
+        return Err("".into());
+    }
+    Ok(())
+}
+
+async fn tree_command(args: &Vec<&str>, centra: &Centra) -> MyResult<()> {
+    let id: i32 = args.get(1).ok_or("")?.parse().or(Err(""))?;
+    if id as usize <= BASE_REP_NUM {
+        let addr = centra.get_addr(id);
+        let channel = channel_connect(&addr).await.unwrap();
+        let mut client = RsyncClient::new(channel);
+        client.tree(Request::new(Void {})).await.unwrap();
     } else {
         return Err("".into());
     }
@@ -80,7 +93,15 @@ async fn main() {
             Ok(line) => {
                 let args = line.trim().split_whitespace().collect::<Vec<&str>>();
                 if !args.is_empty() {
-                    if args[0] == "sync" && sync_command(args, &centra).await.is_err() {
+                    if args[0] == "sync" {
+                        if sync_command(&args, &centra).await.is_err() {
+                            BannerOut::cross("Invalid input");
+                        }
+                    } else if args[0] == "tree" {
+                        if tree_command(&args, &centra).await.is_err() {
+                            BannerOut::cross("Invalid input");
+                        }
+                    } else {
                         BannerOut::cross("Invalid input");
                     }
                 }
