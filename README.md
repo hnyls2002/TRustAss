@@ -118,6 +118,7 @@ Shutting down the command line interface ...
 - When a folder or a file is being synchronized, do not modify it. Otherwise, the synchronization may fail.
 - Some IDEs or editors may create temporary files when editing files, which brings some confusion to the original timestamp vector mechanism.
 - The `inotify` event watcher may have some critical delays, which bring false positives to the local modification detection.
+- Limited to the gRPC message size, the maximum size of a file that can be synchronized is 4MB.
 
 ### References
 
