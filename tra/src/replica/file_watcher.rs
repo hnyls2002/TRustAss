@@ -109,6 +109,8 @@ impl WatchIfc {
     }
 
     pub async fn unfreeze_watch(&self, wd: &WatchDescriptor) {
+        // manually sleep in case that the delay of inotify influences the sync-modification
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let mut mp = self.freeze_count_map.write().await;
         mp.entry(wd.get_watch_descriptor_id())
             .and_modify(|v| *v -= 1);

@@ -113,7 +113,7 @@ impl Replica {
             time: self.add_counter().await,
             client,
         };
-        self.base_node.handle_sync(op, walk, None).await?;
+        self.base_node.handle_sync(op, walk, &None).await?;
         Ok(())
     }
 

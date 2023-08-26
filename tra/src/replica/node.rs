@@ -48,7 +48,7 @@ pub struct NodeData {
 
 pub struct Node {
     pub meta: Arc<Meta>,
-    pub path: Box<PathLocal>,
+    pub path: PathLocal,
     pub data: RwLock<NodeData>,
 }
 
@@ -215,7 +215,7 @@ impl Node {
             wd: meta.watch.add_watch(&path).await,
         };
         Self {
-            path: Box::new(path),
+            path,
             meta: meta.clone(),
             data: RwLock::new(data),
         }
@@ -232,7 +232,7 @@ impl Node {
             wd: meta.watch.add_watch(path).await,
         };
         Node {
-            path: Box::new(path.clone()),
+            path: path.clone(),
             meta: meta.clone(),
             data: RwLock::new(data),
         }
@@ -251,7 +251,7 @@ impl Node {
         };
         Self {
             meta: meta.clone(),
-            path: Box::new(tmp_path.clone()),
+            path: tmp_path.clone(),
             data: RwLock::new(data),
         }
     }
@@ -361,14 +361,14 @@ impl Node {
         &self,
         op: SyncOption,
         mut walk: Vec<String>,
-        p_wd: Option<WatchDescriptor>,
+        p_wd: &Option<WatchDescriptor>,
     ) -> MyResult<NodeStatus> {
         if !walk.is_empty() {
             // not the target node yet
             let mut cur_data = self.data.write().await;
-            let np_wd = cur_data.wd.clone().or(p_wd);
+            let np_wd = cur_data.wd.clone().or(p_wd.clone());
             let child = self.get_child(&cur_data, &walk.pop().unwrap());
-            let child_status = child.handle_sync(op, walk, np_wd).await?;
+            let child_status = child.handle_sync(op, walk, &np_wd).await?;
 
             if child_status.exist() {
                 cur_data.children.insert(child.file_name(), child);
@@ -445,7 +445,7 @@ impl Node {
     pub async fn sync_node(
         &self,
         mut op: SyncOption,
-        p_wd: Option<WatchDescriptor>,
+        p_wd: &Option<WatchDescriptor>,
     ) -> MyResult<NodeStatus> {
         let mut cur_data = self.data.write().await;
         let (remote_data, remote_is_dir) = op.query_data(&self.path).await?;
@@ -472,7 +472,7 @@ impl Node {
         if (cur_data.status.exist() && !self.path.is_dir())
             || (remote_data.status.exist() && !remote_is_dir)
         {
-            return self.sync_file(op, np_wd, &mut cur_data, &remote_data).await;
+            return self.sync_file(op, &mut cur_data, &remote_data, p_wd).await;
         }
 
         // sync a remote folder -> local folder
@@ -489,7 +489,7 @@ impl Node {
             let op = op.clone();
             let np_wd = np_wd.clone();
             join_set.spawn(async move {
-                let res = child.sync_node(op, np_wd).await?;
+                let res = child.sync_node(op, &np_wd).await?;
                 // return the Arc<Node> in case that the tmp child is lost
                 MyResult::Ok((res, child))
             });
@@ -525,9 +525,9 @@ impl Node {
                 .watch
                 .remove_watch(self.path.as_ref(), &wd)
                 .await?;
+
             self.meta.watch.freeze_watch(&p_wd.clone().unwrap()).await;
             delete_empty_dir(&self.path).await?;
-            self.meta.watch.unfreeze_watch(&p_wd.clone().unwrap()).await;
         } else if cur_data.status.deleted() {
             SyncBanner::create_to_independent_empty(&self.path);
 
@@ -550,17 +550,15 @@ impl Node {
     pub async fn sync_file(
         &self,
         op: SyncOption,
-        wd: Option<WatchDescriptor>,
         cur_data: &mut RwLockWriteGuard<'_, NodeData>,
         remote_data: &RemoteData,
+        p_wd: &Option<WatchDescriptor>,
     ) -> MyResult<NodeStatus> {
-        let wd = wd.expect("WatchDescriptor is required");
         if cur_data.status.exist() && remote_data.status.exist() {
             // both exist
             if cur_data.mod_time.leq(&remote_data.sync_time) {
-                // local_m <= remote_s
-                SyncBanner::overwrite(&self.path);
-                self.sync_work(SyncType::Override, op, &wd, cur_data, &remote_data)
+                // local_m <= remote_s SyncBanner::overwrite(&self.path);
+                self.sync_work(SyncType::Override, op, cur_data, &remote_data, p_wd)
                     .await?;
             } else if remote_data.mod_time.leq(&cur_data.sync_time) {
                 // local_s >= remote_m
@@ -569,7 +567,7 @@ impl Node {
                 // report conflicts
                 let _guard = self.meta.c_lock.lock().await;
                 SyncBanner::conflict(&self.path);
-                self.sync_conflicts(op, &wd, cur_data, remote_data).await?;
+                self.sync_conflicts(op, cur_data, remote_data, p_wd).await?;
             }
         } else if cur_data.status.exist() || remote_data.status.exist() {
             if remote_data.status.deleted() {
@@ -577,12 +575,12 @@ impl Node {
                 if cur_data.create_time.leq_vec(&remote_data.sync_time) {
                     if cur_data.mod_time.leq(&remote_data.sync_time) {
                         SyncBanner::delete(&self.path);
-                        self.sync_work(SyncType::Delete, op, &wd, cur_data, remote_data)
+                        self.sync_work(SyncType::Delete, op, cur_data, remote_data, p_wd)
                             .await?;
                     } else {
                         let _guard = self.meta.c_lock.lock().await;
                         SyncBanner::conflict(&self.path);
-                        self.sync_conflicts(op, &wd, cur_data, remote_data).await?;
+                        self.sync_conflicts(op, cur_data, remote_data, p_wd).await?;
                     }
                 } else {
                     SyncBanner::skip_from_independent_empty(&self.path);
@@ -595,11 +593,11 @@ impl Node {
                     } else {
                         let _guard = self.meta.c_lock.lock().await;
                         SyncBanner::conflict(&self.path);
-                        self.sync_conflicts(op, &wd, cur_data, remote_data).await?;
+                        self.sync_conflicts(op, cur_data, remote_data, p_wd).await?;
                     }
                 } else {
                     SyncBanner::create_to_independent_empty(&self.path);
-                    self.sync_work(SyncType::Create, op, &wd, cur_data, &remote_data)
+                    self.sync_work(SyncType::Create, op, cur_data, &remote_data, p_wd)
                         .await?;
                 }
             }
@@ -613,12 +611,13 @@ impl Node {
         &self,
         ty: SyncType,
         op: SyncOption,
-        wd: &WatchDescriptor,
         cur_data: &mut RwLockWriteGuard<'_, NodeData>,
         remote_data: &RemoteData,
+        p_wd: &Option<WatchDescriptor>,
     ) -> MyResult<()> {
         assert!(cur_data.wd.is_none());
-        self.meta.watch.freeze_watch(wd).await;
+        let wd = p_wd.clone().expect("Sync Work : wd is none");
+        self.meta.watch.freeze_watch(&wd).await;
         match ty {
             SyncType::Create | SyncType::Override => {
                 sync_bytes(&self.path, op.client).await?;
@@ -627,7 +626,7 @@ impl Node {
                 delete_file(&self.path).await?;
             }
         }
-        self.meta.watch.unfreeze_watch(wd).await;
+        self.meta.watch.unfreeze_watch(&wd).await;
 
         cur_data.mod_time = remote_data.mod_time.clone();
         cur_data.sync_time = remote_data.sync_time.clone();
@@ -651,9 +650,9 @@ impl Node {
     pub async fn sync_conflicts(
         &self,
         op: SyncOption,
-        wd: &WatchDescriptor,
         cur_data: &mut RwLockWriteGuard<'_, NodeData>,
         remote_data: &RemoteData,
+        p_wd: &Option<WatchDescriptor>,
     ) -> MyResult<()> {
         let choices = &mut [
             "use the local version".to_string(),
@@ -677,9 +676,8 @@ impl Node {
         // the conflicted should be a file instead of a dir
         assert!(cur_data.wd.is_none());
         assert!(cur_data.children.is_empty());
-        self.meta.watch.freeze_watch(wd).await;
-
-        // what ever the choice is, we should pass the sync time
+        let wd = p_wd.clone().expect("Sync Conflicts : wd is none");
+        self.meta.watch.freeze_watch(&wd).await;
 
         match selection {
             0 => {
@@ -710,7 +708,7 @@ impl Node {
             _ => unreachable!(),
         }
 
-        self.meta.watch.unfreeze_watch(wd).await;
+        self.meta.watch.unfreeze_watch(&wd).await;
 
         Ok(())
     }
