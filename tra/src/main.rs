@@ -101,16 +101,23 @@ async fn main() {
                         if tree_command(&args, &centra).await.is_err() {
                             BannerOut::cross("Invalid input");
                         }
+                    } else if args[0] == "exit" {
+                        if args.len() == 1 {
+                            break;
+                        } else {
+                            BannerOut::cross("Invalid input");
+                        }
                     } else {
                         BannerOut::cross("Invalid input");
                     }
                 }
             }
             Err(ReadlineError::Interrupted) => {
-                println!("Shutting down the command line interface ...");
                 break;
             }
             Err(_) => panic!("Invalid input"),
         }
     }
+
+    println!("Shutting down the command line interface ...");
 }

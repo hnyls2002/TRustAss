@@ -1,7 +1,16 @@
 use fast_rsync::SignatureOptions;
+use lazy_static::lazy_static;
 use tokio::signal;
 
-pub const TMP_PATH: &str = "/home/hnyls2002/Desktop/TRustAss/tmp/";
+fn get_tmp_path() -> String {
+    let mut path_abs = std::env::current_dir().unwrap();
+    path_abs.push("tmp/");
+    path_abs.to_str().unwrap().to_string()
+}
+
+lazy_static! {
+    pub static ref TMP_PATH: String = get_tmp_path();
+}
 
 pub const BASE_REP_NUM: usize = 3;
 
@@ -26,5 +35,5 @@ pub type MpscReceiver<T> = tokio::sync::mpsc::Receiver<T>;
 pub type ServiceHandle = tokio::task::JoinHandle<Result<(), tonic::transport::Error>>;
 
 pub fn sync_folder_prefix(id: i32) -> String {
-    format!("{}replica-{}", TMP_PATH, id)
+    format!("{}replica-{}", *TMP_PATH, id)
 }

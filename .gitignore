@@ -16,3 +16,4 @@ Cargo.lock
 tmp/
 tra/src/protos/
 tra/src/rpc/
+.vscode/
