@@ -77,6 +77,8 @@ pub async fn manually_resolve(path: &PathLocal, op: SyncOption) -> MyResult<bool
         .await
         .expect("failed to execute editor");
     if !edit_command.success() {
+        // write back the original file if no changes were made
+        write_bytes(path, original).await?;
         BannerOut::cross("failed to execute editor");
         return Ok(false);
     }

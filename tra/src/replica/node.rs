@@ -680,13 +680,16 @@ impl Node {
         self.meta.watch.freeze_watch(wd).await;
 
         // what ever the choice is, we should pass the sync time
-        cur_data.sync_time = remote_data.sync_time.clone();
-        cur_data.sync_time.update_one(self.meta.id, op.time);
 
         match selection {
-            0 => {}
+            0 => {
+                cur_data.sync_time = remote_data.sync_time.clone();
+                cur_data.sync_time.update_one(self.meta.id, op.time);
+            }
             1 => {
                 sync_bytes(&self.path, op.client).await?;
+                cur_data.sync_time = remote_data.sync_time.clone();
+                cur_data.sync_time.update_one(self.meta.id, op.time);
                 // use the remote version, pass all the infos to local
                 cur_data.mod_time = remote_data.mod_time.clone();
                 cur_data.create_time = remote_data.create_time.clone();
@@ -694,10 +697,14 @@ impl Node {
             }
             2 => {
                 let success = manually_resolve(&self.path, op.clone()).await?;
-                cur_data.mod_time.update_one(self.meta.id, op.time);
-                if cur_data.status.deleted() {
-                    cur_data.status.set_exist();
-                    cur_data.create_time = SingletonTime::new(self.meta.id, op.time);
+                if success {
+                    cur_data.sync_time = remote_data.sync_time.clone();
+                    cur_data.sync_time.update_one(self.meta.id, op.time);
+                    cur_data.mod_time.update_one(self.meta.id, op.time);
+                    if cur_data.status.deleted() {
+                        cur_data.status.set_exist();
+                        cur_data.create_time = SingletonTime::new(self.meta.id, op.time);
+                    }
                 }
             }
             _ => unreachable!(),
