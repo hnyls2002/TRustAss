@@ -558,6 +558,7 @@ impl Node {
             // both exist
             if cur_data.mod_time.leq(&remote_data.sync_time) {
                 // local_m <= remote_s SyncBanner::overwrite(&self.path);
+                SyncBanner::overwrite(&self.path);
                 self.sync_work(SyncType::Override, op, cur_data, &remote_data, p_wd)
                     .await?;
             } else if remote_data.mod_time.leq(&cur_data.sync_time) {
